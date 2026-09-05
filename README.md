@@ -153,6 +153,27 @@ Filtering happens as early as possible: the Kotlin service checks the package
 name before reading a notification's contents, so alerts from apps you did not
 select are never read into memory at all.
 
+### Surviving in the background
+
+The listener is bound by the OS, not by the app, so it runs whether or not
+SpendWise is open — which is the normal case, since alerts arrive while you are
+in a shop. With no Flutter engine attached, captures go to a bounded on-disk
+queue and drain the next time the app opens. The watch list is read from disk
+too, so all of this works in a process Android started cold.
+
+Being disconnected is not a decision the user made: Android tears the listener
+down under memory pressure, and Samsung's battery management does it far more
+eagerly. So `onListenerDisconnected` calls `requestRebind`. Without it the
+service can stay dead until the app is reopened or the phone reboots, and every
+purchase in between is missed silently. The platform only honours the request
+while the component is still enabled in Notification access, so a genuine
+revocation by the user stays revoked.
+
+On a Samsung device that is still not sufficient by itself. Set **Battery →
+Unrestricted** for the app, and add it to **Never sleeping apps** under Battery
+→ Background usage limits — One UI will otherwise deep-sleep it regardless of
+what the app asks for.
+
 ---
 
 ## The CIBC parser

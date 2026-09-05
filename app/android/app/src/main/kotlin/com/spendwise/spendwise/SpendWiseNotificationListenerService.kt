@@ -1,6 +1,7 @@
 package com.spendwise.spendwise
 
 import android.app.Notification
+import android.content.ComponentName
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
@@ -41,6 +42,21 @@ class SpendWiseNotificationListenerService : NotificationListenerService() {
         super.onListenerDisconnected()
         NotificationBridge.setService(null)
         NotificationBridge.setListenerConnected(false)
+
+        // Ask the system to bind us again.
+        //
+        // Being disconnected is not a decision the user made. Android tears
+        // the listener down under memory pressure, and Samsung's battery
+        // management does it far more eagerly than stock Android — a device
+        // that puts the app to sleep will disconnect it and never come back on
+        // its own. Without this the service can stay dead until the app is
+        // reopened or the phone reboots, and every purchase in between is
+        // missed silently, which is the worst way for this app to fail.
+        //
+        // This cannot resurrect a listener the user revoked: the platform only
+        // honours a rebind request while the component is still enabled in
+        // Notification access, so a genuine revocation stays revoked.
+        requestRebind(ComponentName(this, SpendWiseNotificationListenerService::class.java))
     }
 
     /**
