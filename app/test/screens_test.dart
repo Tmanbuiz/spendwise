@@ -274,6 +274,120 @@ void main() {
     });
   });
 
+  group('transactions by month', () {
+    // The 15th so the date exists in every month and lands inside the default
+    // window whatever today happens to be.
+    final now = DateTime.now();
+    final lastMonth = DateTime(now.year, now.month - 1, 15);
+
+    final acrossMonths = <AppTransaction>[
+      ...transactions,
+      sample(
+        id: 'old1',
+        cents: 999,
+        merchant: 'ESSO',
+        when: lastMonth,
+      ),
+    ];
+
+    testWidgets('shows only the month being viewed', (tester) async {
+      await tester.pumpWidget(harness(
+        const TransactionsScreen(),
+        transactions: acrossMonths,
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('TIM HORTONS'), findsOneWidget);
+      expect(find.text('ESSO'), findsNothing,
+          reason: 'last month must not leak into this month');
+    });
+
+    testWidgets('stepping back shows the previous month', (tester) async {
+      await tester.pumpWidget(harness(
+        const TransactionsScreen(),
+        transactions: acrossMonths,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Previous month'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('ESSO'), findsOneWidget);
+      expect(find.text('TIM HORTONS'), findsNothing);
+    });
+
+    testWidgets('all time shows every month at once', (tester) async {
+      await tester.pumpWidget(harness(
+        const TransactionsScreen(),
+        transactions: acrossMonths,
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Show all time'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('TIM HORTONS'), findsOneWidget);
+      expect(find.text('ESSO'), findsOneWidget);
+    });
+
+    testWidgets('the month total counts purchases only', (tester) async {
+      await tester.pumpWidget(harness(
+        const TransactionsScreen(),
+        transactions: acrossMonths,
+      ));
+      await tester.pumpAndSettle();
+
+      // 45.67 + 123.00. The 500.00 card payment does not count, and last
+      // month's 9.99 belongs to a different window.
+      expect(find.text('2 purchases'), findsOneWidget);
+      expect(find.text(r'$168.67'), findsWidgets);
+      expect(find.textContaining(r'$668.67'), findsNothing);
+      expect(find.textContaining(r'$178.66'), findsNothing);
+    });
+
+    testWidgets('cannot page back past the start of the history',
+        (tester) async {
+      await tester.pumpWidget(harness(
+        const TransactionsScreen(),
+        transactions: acrossMonths,
+      ));
+      await tester.pumpAndSettle();
+
+      // One step back reaches the oldest month, so the control must then be
+      // dead rather than walking into empty months that look like lost data.
+      await tester.tap(find.byTooltip('Previous month'));
+      await tester.pumpAndSettle();
+
+      final previous = tester.widget<IconButton>(
+        find.ancestor(
+          of: find.byIcon(Icons.chevron_left_rounded),
+          matching: find.byType(IconButton),
+        ),
+      );
+      expect(previous.onPressed, isNull);
+    });
+
+    testWidgets('says which month is empty rather than looking broken',
+        (tester) async {
+      await tester.pumpWidget(harness(
+        const TransactionsScreen(),
+        // Only last month has anything, so this month is empty.
+        transactions: <AppTransaction>[
+          sample(id: 'old1', cents: 999, merchant: 'ESSO', when: lastMonth),
+        ],
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Nothing in'), findsOneWidget);
+      expect(find.text('No transactions yet'), findsNothing);
+
+      await tester.tap(find.text('Show all time'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('ESSO'), findsOneWidget);
+    });
+  });
+
   group('transaction detail', () {
     testWidgets('opens blank for a new manual transaction', (tester) async {
       await tester.pumpWidget(harness(const TransactionDetailScreen()));

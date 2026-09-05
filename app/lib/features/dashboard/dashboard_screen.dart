@@ -32,7 +32,11 @@ class DashboardScreen extends ConsumerWidget {
         actions: <Widget>[
           IconButton(
             tooltip: 'Previous month',
-            onPressed: () => ref.read(monthOffsetProvider.notifier).step(-1),
+            // Stop where the history does, rather than paging into empty
+            // months that read as lost data.
+            onPressed: offset <= ref.watch(oldestMonthOffsetProvider)
+                ? null
+                : () => ref.read(monthOffsetProvider.notifier).step(-1),
             icon: const Icon(Icons.chevron_left_rounded),
           ),
           IconButton(

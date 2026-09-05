@@ -300,6 +300,42 @@ final monthComparisonProvider = Provider<MonthComparison>((ref) {
   );
 });
 
+/// How far back month navigation can usefully go: the offset of the oldest
+/// month that actually holds a transaction.
+///
+/// Without it the arrows step endlessly into empty months, which reads as the
+/// app having lost the data rather than there being none before that point.
+///
+/// Computed through [MonthWindow] rather than by subtracting calendar months,
+/// because a user whose month starts on the 15th has transactions that fall in
+/// the *previous* window from the one their date would suggest.
+final oldestMonthOffsetProvider = Provider<int>((ref) {
+  final transactions =
+      ref.watch(transactionsProvider).value ?? const <AppTransaction>[];
+  if (transactions.isEmpty) return 0;
+
+  final preferences =
+      ref.watch(preferencesProvider).value ?? const UserPreferences();
+
+  var oldest = transactions.first.occurredAt;
+  for (final transaction in transactions) {
+    if (transaction.occurredAt.isBefore(oldest)) oldest = transaction.occurredAt;
+  }
+
+  final oldestStart = MonthWindow.forDate(
+    oldest,
+    monthStartDay: preferences.monthStartDay,
+  ).start;
+  final currentStart = MonthWindow.forDate(
+    DateTime.now(),
+    monthStartDay: preferences.monthStartDay,
+  ).start;
+
+  final months = (oldestStart.year - currentStart.year) * 12 +
+      (oldestStart.month - currentStart.month);
+  return months.clamp(-240, 0);
+});
+
 final budgetProgressProvider = Provider<List<BudgetProgress>>((ref) {
   final budgets = ref.watch(budgetsProvider).value ?? const <Budget>[];
   final summary = ref.watch(monthComparisonProvider).current;

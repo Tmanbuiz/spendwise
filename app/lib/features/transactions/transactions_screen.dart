@@ -20,6 +20,16 @@ enum _Filter {
 }
 
 /// The full transaction list, grouped by day and filterable.
+///
+/// Scoped to one month at a time, driven by the same `monthOffsetProvider` the
+/// dashboard uses. Sharing that state is the point: stepping back to July on
+/// the dashboard and then opening Activity shows July, rather than the two
+/// screens quietly disagreeing about which month is being looked at.
+///
+/// The month can be stepped off entirely, because a couple of questions are
+/// genuinely about the whole history — "have I ever shopped here?", "when did
+/// this subscription start?" — and month-scoping a search makes those
+/// unanswerable.
 class TransactionsScreen extends ConsumerStatefulWidget {
   const TransactionsScreen({super.key});
 
@@ -30,6 +40,7 @@ class TransactionsScreen extends ConsumerStatefulWidget {
 class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   _Filter _filter = _Filter.all;
   String _search = '';
+  bool _allTime = false;
 
   bool _matches(AppTransaction transaction) {
     switch (_filter) {
@@ -53,9 +64,44 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final transactions = ref.watch(transactionsProvider);
+    final summary = ref.watch(monthComparisonProvider).current;
+    final offset = ref.watch(monthOffsetProvider);
+    final oldestOffset = ref.watch(oldestMonthOffsetProvider);
+    final window = summary.window;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Activity')),
+      appBar: AppBar(
+        title: Text(_allTime ? 'All activity' : Fmt.monthAndYear(window.start)),
+        actions: <Widget>[
+          IconButton(
+            tooltip: _allTime ? 'Show one month' : 'Show all time',
+            onPressed: () => setState(() => _allTime = !_allTime),
+            icon: Icon(
+              _allTime
+                  ? Icons.calendar_month_rounded
+                  : Icons.all_inclusive_rounded,
+            ),
+          ),
+          if (!_allTime) ...<Widget>[
+            IconButton(
+              tooltip: 'Previous month',
+              // Stop at the first month that holds anything. Paging into
+              // empty months looks like lost data.
+              onPressed: offset <= oldestOffset
+                  ? null
+                  : () => ref.read(monthOffsetProvider.notifier).step(-1),
+              icon: const Icon(Icons.chevron_left_rounded),
+            ),
+            IconButton(
+              tooltip: 'Next month',
+              onPressed: offset >= 0
+                  ? null
+                  : () => ref.read(monthOffsetProvider.notifier).step(1),
+              icon: const Icon(Icons.chevron_right_rounded),
+            ),
+          ],
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/transaction'),
         icon: const Icon(Icons.add_rounded),
@@ -92,6 +138,36 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
             ),
           ),
           const SizedBox(height: 8),
+          if (!_allTime)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      summary.isEmpty
+                          ? 'Nothing recorded this month'
+                          : '${summary.transactionCount} '
+                              '${summary.transactionCount == 1 ? "purchase" : "purchases"}',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  // The same figure the dashboard shows for this month, from
+                  // the same summary, so the two can never drift apart.
+                  Text(
+                    Fmt.money(
+                      summary.totalSpentCents,
+                      currency: summary.currency,
+                    ),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: transactions.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -106,15 +182,48 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                 ),
               ),
               data: (all) {
-                final filtered = all.where(_matches).toList();
+                final inScope = _allTime
+                    ? all
+                    : all.where((t) => window.contains(t.occurredAt)).toList();
+                final filtered = inScope.where(_matches).toList();
+
                 if (filtered.isEmpty) {
+                  // Three different nothings, and saying which one it is saves
+                  // the user wondering whether the app lost their data: no
+                  // history at all, none in this month, or none matching what
+                  // they typed.
+                  if (all.isEmpty) {
+                    return const EmptyState(
+                      icon: Icons.receipt_long_outlined,
+                      title: 'No transactions yet',
+                      message: 'Purchases appear automatically once your bank '
+                          'sends an alert. You can also import a statement.',
+                    );
+                  }
+                  if (!_allTime && inScope.isEmpty) {
+                    return EmptyState(
+                      icon: Icons.event_busy_rounded,
+                      title: 'Nothing in ${Fmt.monthAndYear(window.start)}',
+                      message: 'There are transactions in other months.',
+                      action: TextButton(
+                        onPressed: () => setState(() => _allTime = true),
+                        child: const Text('Show all time'),
+                      ),
+                    );
+                  }
                   return EmptyState(
                     icon: Icons.search_off_rounded,
-                    title: all.isEmpty ? 'No transactions yet' : 'Nothing here',
-                    message: all.isEmpty
-                        ? 'Purchases appear automatically once your bank sends '
-                            'an alert.'
-                        : 'No transactions match this filter.',
+                    title: 'Nothing here',
+                    message: _allTime
+                        ? 'No transactions match this filter.'
+                        : 'No transactions match this filter in '
+                            '${Fmt.monthAndYear(window.start)}.',
+                    action: _allTime
+                        ? null
+                        : TextButton(
+                            onPressed: () => setState(() => _allTime = true),
+                            child: const Text('Search all time'),
+                          ),
                   );
                 }
                 return _GroupedList(transactions: filtered);
