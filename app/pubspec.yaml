@@ -1,0 +1,39 @@
+name: spendwise
+description: "Automatic monthly spending tracking from bank and card notifications."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  supabase_flutter: ^2.17.2
+  flutter_riverpod: ^3.4.3
+  go_router: ^18.0.1
+  intl: ^0.20.3
+  flutter_dotenv: ^6.0.1
+  fl_chart: ^1.2.0
+  shared_preferences: ^2.5.5
+
+  # The parsing, categorisation and duplicate-detection engine. Pure Dart with
+  # no Flutter dependency, so it is unit-tested without a device and can back
+  # the planned iOS email importer unchanged.
+  spendwise_parser:
+    path: ../packages/spendwise_parser
+  file_picker: ^12.2.0
+  syncfusion_flutter_pdf: ^34.2.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - .env
