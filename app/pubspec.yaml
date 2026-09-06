@@ -2,7 +2,7 @@ name: spendwise
 description: "Automatic monthly spending tracking from bank and card notifications."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ^3.13.2

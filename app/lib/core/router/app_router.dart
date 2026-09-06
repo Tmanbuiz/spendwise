@@ -8,6 +8,7 @@ import '../../features/auth/auth_screen.dart';
 import '../../features/budgets/budgets_screen.dart';
 import '../../features/categories/categories_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
+import '../../features/insights/insights_screen.dart';
 import '../../features/debug/parser_debug_screen.dart';
 import '../../features/onboarding/bank_selection_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
@@ -40,6 +41,7 @@ abstract final class Routes {
   static const dashboard = '/home';
   static const transactions = '/home/transactions';
   static const budgets = '/home/budgets';
+  static const insights = '/home/insights';
   static const settings = '/home/settings';
   static const accounts = '/accounts';
   static const categories = '/categories';
@@ -72,14 +74,8 @@ final routerProvider = Provider<GoRouter>((ref) {
     refreshListenable: refresh,
     redirect: (context, state) => _redirect(ref, state),
     routes: <RouteBase>[
-      GoRoute(
-        path: Routes.splash,
-        builder: (_, _) => const SplashScreen(),
-      ),
-      GoRoute(
-        path: Routes.auth,
-        builder: (_, _) => const AuthScreen(),
-      ),
+      GoRoute(path: Routes.splash, builder: (_, _) => const SplashScreen()),
+      GoRoute(path: Routes.auth, builder: (_, _) => const AuthScreen()),
       GoRoute(
         path: Routes.onboarding,
         builder: (_, _) => const OnboardingScreen(),
@@ -100,18 +96,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.notificationAccess,
         builder: (_, _) => const PermissionScreen(),
       ),
-      GoRoute(
-        path: Routes.accounts,
-        builder: (_, _) => const AccountsScreen(),
-      ),
+      GoRoute(path: Routes.accounts, builder: (_, _) => const AccountsScreen()),
       GoRoute(
         path: Routes.categories,
         builder: (_, _) => const CategoriesScreen(),
       ),
-      GoRoute(
-        path: Routes.debug,
-        builder: (_, _) => const ParserDebugScreen(),
-      ),
+      GoRoute(path: Routes.debug, builder: (_, _) => const ParserDebugScreen()),
       GoRoute(
         path: Routes.diagnostics,
         builder: (_, _) => const DiagnosticsScreen(),
@@ -131,30 +121,46 @@ final routerProvider = Provider<GoRouter>((ref) {
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => HomeShell(shell: shell),
         branches: <StatefulShellBranch>[
-          StatefulShellBranch(routes: <RouteBase>[
-            GoRoute(
-              path: Routes.dashboard,
-              builder: (_, _) => const DashboardScreen(),
-            ),
-          ]),
-          StatefulShellBranch(routes: <RouteBase>[
-            GoRoute(
-              path: Routes.transactions,
-              builder: (_, _) => const TransactionsScreen(),
-            ),
-          ]),
-          StatefulShellBranch(routes: <RouteBase>[
-            GoRoute(
-              path: Routes.budgets,
-              builder: (_, _) => const BudgetsScreen(),
-            ),
-          ]),
-          StatefulShellBranch(routes: <RouteBase>[
-            GoRoute(
-              path: Routes.settings,
-              builder: (_, _) => const SettingsScreen(),
-            ),
-          ]),
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: Routes.dashboard,
+                builder: (_, _) => const DashboardScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: Routes.transactions,
+                builder: (_, _) => const TransactionsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: Routes.budgets,
+                builder: (_, _) => const BudgetsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: Routes.insights,
+                builder: (_, _) => const InsightsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: <RouteBase>[
+              GoRoute(
+                path: Routes.settings,
+                builder: (_, _) => const SettingsScreen(),
+              ),
+            ],
+          ),
         ],
       ),
     ],
