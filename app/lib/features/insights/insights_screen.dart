@@ -1,3 +1,5 @@
+import '../../widgets/spending_changes_card.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -81,6 +83,8 @@ class InsightsScreen extends ConsumerWidget {
                   ? 'No spending recorded in the matching prior period. Add older statements to build a useful comparison.'
                   : 'First ${data.comparisonDays} days: ${Fmt.money(data.comparable.current.totalSpentCents, currency: data.currency)} this period vs ${Fmt.money(data.comparable.previous.totalSpentCents, currency: data.currency)} in the prior period. Today may still be incomplete.',
             ),
+            const SizedBox(height: 14),
+            SpendingChangesCard(data: data),
             const SizedBox(height: 14),
             const SectionHeader(title: 'Daily spending'),
             SectionCard(

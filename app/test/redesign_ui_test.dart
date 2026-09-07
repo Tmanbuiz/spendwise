@@ -138,6 +138,8 @@ void main() {
     expect(find.text('Average purchase'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await capture(tester, key, 'spendwise-insights');
+    await tester.scrollUntilVisible(find.byType(DailySpendingChart), 300, scrollable: find.byType(Scrollable).last);
+    await tester.pumpAndSettle();
     await tester.tap(find.descendant(of: find.byType(DailySpendingChart), matching: find.byType(GestureDetector)).first);
     await tester.pumpAndSettle();
     expect(find.text(r'$1,213.13'), findsOneWidget);
@@ -207,3 +209,4 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 }
+
