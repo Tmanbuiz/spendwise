@@ -289,6 +289,43 @@ void main() {
       sample(id: 'old1', cents: 999, merchant: 'ESSO', when: lastMonth),
     ];
 
+    test('calendar range includes both boundary days and excludes others', () {
+      final rows = transactionsInDateRange(
+        <AppTransaction>[
+          sample(
+            id: 'before',
+            cents: 100,
+            merchant: 'BEFORE',
+            when: DateTime(2026, 9, 1, 23, 59),
+          ),
+          sample(
+            id: 'start',
+            cents: 200,
+            merchant: 'START',
+            when: DateTime(2026, 9, 2),
+          ),
+          sample(
+            id: 'end',
+            cents: 300,
+            merchant: 'END',
+            when: DateTime(2026, 9, 4, 23, 59),
+          ),
+          sample(
+            id: 'after',
+            cents: 400,
+            merchant: 'AFTER',
+            when: DateTime(2026, 9, 5),
+          ),
+        ],
+        DateTimeRange(
+          start: DateTime(2026, 9, 2),
+          end: DateTime(2026, 9, 4),
+        ),
+      );
+
+      expect(rows.map((row) => row.id), <String>['start', 'end']);
+    });
+
     testWidgets('shows only the month being viewed', (tester) async {
       await tester.pumpWidget(
         harness(const TransactionsScreen(), transactions: acrossMonths),

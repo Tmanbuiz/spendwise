@@ -41,6 +41,45 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
   _Filter _filter = _Filter.all;
   String _search = '';
   bool _allTime = false;
+  DateTimeRange? _dateRange;
+
+  DateTime _dateOnly(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
+
+  Future<void> _chooseDates(List<AppTransaction> transactions) async {
+    final today = _dateOnly(DateTime.now());
+    final earliest = transactions.isEmpty
+        ? DateTime(today.year - 10)
+        : transactions
+              .map((transaction) => _dateOnly(transaction.occurredAt))
+              .reduce((a, b) => a.isBefore(b) ? a : b);
+    final latestTransaction = transactions.isEmpty
+        ? today
+        : transactions
+              .map((transaction) => _dateOnly(transaction.occurredAt))
+              .reduce((a, b) => a.isAfter(b) ? a : b);
+    final lastDate = latestTransaction.isAfter(today)
+        ? latestTransaction
+        : today;
+    final initial = _dateRange ??
+        DateTimeRange(
+          start: earliest,
+          end: lastDate,
+        );
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: earliest,
+      lastDate: lastDate,
+      initialDateRange: initial,
+      helpText: 'Choose transaction dates',
+      saveText: 'Show transactions',
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _dateRange = selected;
+      _allTime = false;
+    });
+  }
 
   bool _matches(AppTransaction transaction) {
     switch (_filter) {
@@ -68,21 +107,47 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
     final offset = ref.watch(monthOffsetProvider);
     final oldestOffset = ref.watch(oldestMonthOffsetProvider);
     final window = summary.window;
+    final loadedTransactions = transactions.value ?? const <AppTransaction>[];
+    final range = _dateRange;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_allTime ? 'All activity' : Fmt.monthAndYear(window.start)),
+        title: Text(
+          range != null
+              ? range.start == range.end
+                    ? Fmt.shortDate(range.start)
+                    : '${Fmt.shortDate(range.start)} – ${Fmt.shortDate(range.end)}'
+              : _allTime
+              ? 'All activity'
+              : Fmt.monthAndYear(window.start),
+        ),
         actions: <Widget>[
           IconButton(
-            tooltip: _allTime ? 'Show one month' : 'Show all time',
-            onPressed: () => setState(() => _allTime = !_allTime),
+            tooltip: 'Choose dates',
+            onPressed: transactions.isLoading
+                ? null
+                : () => _chooseDates(loadedTransactions),
+            icon: const Icon(Icons.calendar_month_rounded),
+          ),
+          IconButton(
+            tooltip: range != null || _allTime
+                ? 'Show one month'
+                : 'Show all time',
+            onPressed: () => setState(() {
+              if (range != null || _allTime) {
+                _dateRange = null;
+                _allTime = false;
+              } else {
+                _allTime = true;
+              }
+            }),
             icon: Icon(
-              _allTime
-                  ? Icons.calendar_month_rounded
+              range != null || _allTime
+                  ? Icons.close_rounded
                   : Icons.all_inclusive_rounded,
             ),
           ),
-          if (!_allTime) ...<Widget>[
+          if (!_allTime && range == null) ...<Widget>[
             IconButton(
               tooltip: 'Previous month',
               // Stop at the first month that holds anything. Paging into
@@ -138,7 +203,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          if (!_allTime)
+          if (!_allTime && range == null)
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
               child: Row(
@@ -182,7 +247,9 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                 ),
               ),
               data: (all) {
-                final inScope = _allTime
+                final inScope = range != null
+                    ? transactionsInDateRange(all, range)
+                    : _allTime
                     ? all
                     : all.where((t) => window.contains(t.occurredAt)).toList();
                 final filtered = inScope.where(_matches).toList();
@@ -200,6 +267,17 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                           'sends an alert. You can also import a statement.',
                     );
                   }
+                  if (range != null && inScope.isEmpty) {
+                    return EmptyState(
+                      icon: Icons.event_busy_rounded,
+                      title: 'Nothing in these dates',
+                      message: 'Choose another range or clear the date filter.',
+                      action: TextButton(
+                        onPressed: () => setState(() => _dateRange = null),
+                        child: const Text('Clear date filter'),
+                      ),
+                    );
+                  }
                   if (!_allTime && inScope.isEmpty) {
                     return EmptyState(
                       icon: Icons.event_busy_rounded,
@@ -214,7 +292,7 @@ class _TransactionsScreenState extends ConsumerState<TransactionsScreen> {
                   return EmptyState(
                     icon: Icons.search_off_rounded,
                     title: 'Nothing here',
-                    message: _allTime
+                    message: _allTime || range != null
                         ? 'No transactions match this filter.'
                         : 'No transactions match this filter in '
                             '${Fmt.monthAndYear(window.start)}.',
@@ -335,3 +413,23 @@ const List<TransactionEventType> manualEventTypes = <TransactionEventType>[
   TransactionEventType.payment,
   TransactionEventType.transfer,
 ];
+
+/// Includes the full start and end days, regardless of transaction time.
+List<AppTransaction> transactionsInDateRange(
+  List<AppTransaction> transactions,
+  DateTimeRange range,
+) {
+  final start = DateTime(range.start.year, range.start.month, range.start.day);
+  final endExclusive = DateTime(
+    range.end.year,
+    range.end.month,
+    range.end.day + 1,
+  );
+  return transactions
+      .where(
+        (transaction) =>
+            !transaction.occurredAt.isBefore(start) &&
+            transaction.occurredAt.isBefore(endExclusive),
+      )
+      .toList();
+}
