@@ -40,7 +40,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
   test(
-    'backup round trip and repeated merge retain existing edits and budgets',
+    'restoring writes the backup over what is on the device',
     () async {
       final original = await LocalStore.open();
       await original.transactions.upsert(tx(900));
@@ -55,9 +55,17 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final destination = await LocalStore.open();
       expect(await decoded.restore(destination), 2);
+
+      // The point of the feature: a row that is wrong on the device is
+      // repaired from the backup. Skipping ids that already existed meant a
+      // corrected backup restored cleanly and changed nothing at all.
       await destination.transactions.upsert(tx(1200));
-      expect(await decoded.restore(destination), 0);
-      expect((await destination.transactions.list()).single.amountCents, 1200);
+      expect(await decoded.restore(destination), 2);
+      expect((await destination.transactions.list()).single.amountCents, 900);
+
+      // A budget arriving under a different id for a category that already
+      // has one replaces it, rather than leaving two competing for the same
+      // category.
       final clash = BackupData(
         transactions: [],
         accounts: [],
@@ -66,8 +74,10 @@ void main() {
         preferences: const UserPreferences(),
         budgets: [const Budget(id: 'another', amountCents: 20000)],
       );
-      expect(await clash.restore(destination), 0);
-      expect((await destination.budgets.list()).single.amountCents, 10000);
+      expect(await clash.restore(destination), 1);
+      final budgets = await destination.budgets.list();
+      expect(budgets.single.id, 'another');
+      expect(budgets.single.amountCents, 20000);
     },
   );
   test('reject invalid backups before writing any records', () {

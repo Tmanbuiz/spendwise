@@ -93,41 +93,55 @@ class BackupData {
     bills: bills,
   );
 
-  // Add missing IDs only. Repeated restore is safe and keeps subsequent edits.
+  /// Writes the backup over what is on the device, by id.
+  ///
+  /// This used to add missing ids only, which meant a restore could never
+  /// repair a row that already existed — it silently skipped it. That made the
+  /// feature useless in the situation it exists for: data on the device is
+  /// wrong, and a known-good copy is available. Restoring a corrected backup
+  /// appeared to succeed and changed nothing.
+  ///
+  /// So a row present in both is now overwritten from the backup. The cost is
+  /// that an edit made after the backup was taken is lost for that row, which
+  /// is the ordinary meaning of restoring: the file is the version being
+  /// asked for. Rows absent from the backup are left alone rather than
+  /// deleted, so restoring an older file adds history back without discarding
+  /// anything newer.
+  ///
+  /// Returns the number of rows written.
   Future<int> restore(DataLayer data) async {
     var count = 0;
-    final accountIds = (await data.accounts.list()).map((x) => x.id).toSet();
+
     for (final x in accounts) {
-      if (accountIds.add(x.id)) {
-        await data.accounts.upsert(x);
-        count++;
-      }
+      await data.accounts.upsert(x);
+      count++;
     }
-    final txIds = (await data.transactions.list()).map((x) => x.id).toSet();
     for (final x in transactions) {
-      if (txIds.add(x.id)) {
-        await data.transactions.upsert(x);
-        count++;
-      }
+      await data.transactions.upsert(x);
+      count++;
     }
+
+    // Budgets match on identity *or* on the pair the app treats as unique, so
+    // restoring cannot leave two budgets competing for one category.
     final currentBudgets = await data.budgets.list();
     for (final x in budgets) {
-      if (!currentBudgets.any(
+      final clash = currentBudgets.where(
         (b) =>
-            b.id == x.id ||
-            (b.currency == x.currency && b.category == x.category),
-      )) {
-        await data.budgets.upsert(x);
-        currentBudgets.add(x);
-        count++;
+            b.id != x.id &&
+            b.currency == x.currency &&
+            b.category == x.category,
+      );
+      for (final duplicate in clash.toList()) {
+        await data.budgets.delete(duplicate.id);
+        currentBudgets.remove(duplicate);
       }
+      await data.budgets.upsert(x);
+      count++;
     }
-    final ruleIds = (await data.rules.list()).map((x) => x.id).toSet();
+
     for (final x in rules) {
-      if (ruleIds.add(x.id)) {
-        await data.rules.upsert(x);
-        count++;
-      }
+      await data.rules.upsert(x);
+      count++;
     }
     return count;
   }
