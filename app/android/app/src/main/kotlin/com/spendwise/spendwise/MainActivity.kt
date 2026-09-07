@@ -10,6 +10,19 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
 
+    private var alertPermissionResult: MethodChannel.Result? = null
+    private fun alertsAllowed(): Boolean =
+        (android.os.Build.VERSION.SDK_INT < 33 || checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) &&
+            getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled()
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 802) {
+            alertPermissionResult?.success(alertsAllowed())
+            alertPermissionResult = null
+        }
+    }
+
     private companion object {
         const val METHOD_CHANNEL = "com.spendwise/notifications"
         const val EVENT_CHANNEL = "com.spendwise/notifications/stream"
@@ -21,6 +34,46 @@ class MainActivity : FlutterActivity() {
         // Either the activity or the service may be the first component
         // Android creates, so both attach storage.
         NotificationBridge.attach(this)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.spendwise/budget_alerts")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "requestPermission" -> {
+                        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            if (alertPermissionResult != null) {
+                                result.error("BUSY", "Permission request already open", null)
+                            } else {
+                                alertPermissionResult = result
+                                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 802)
+                            }
+                        } else result.success(alertsAllowed())
+                    }
+                    "show" -> {
+                        if (!alertsAllowed()) result.success(false)
+                        else {
+                            val manager = getSystemService(android.app.NotificationManager::class.java)
+                            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                                manager.createNotificationChannel(android.app.NotificationChannel("budget_alerts", "Budget alerts", android.app.NotificationManager.IMPORTANCE_DEFAULT))
+                                if (manager.getNotificationChannel("budget_alerts")?.importance == android.app.NotificationManager.IMPORTANCE_NONE) {
+                                    result.success(false)
+                                    return@setMethodCallHandler
+                                }
+                            }
+                            val builder = if (android.os.Build.VERSION.SDK_INT >= 26) android.app.Notification.Builder(this, "budget_alerts") else android.app.Notification.Builder(this)
+                            val intent = Intent(this, MainActivity::class.java)
+                            val pending = android.app.PendingIntent.getActivity(this, 0, intent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+                            val notification = builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+                                .setContentTitle(call.argument<String>("title"))
+                                .setContentText(call.argument<String>("body"))
+                                .setVisibility(android.app.Notification.VISIBILITY_PRIVATE)
+                                .setContentIntent(pending).setAutoCancel(true).build()
+                            manager.notify(call.argument<String>("key"), 802, notification)
+                            result.success(true)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -120,3 +173,4 @@ class MainActivity : FlutterActivity() {
         startActivity(intent)
     }
 }
+

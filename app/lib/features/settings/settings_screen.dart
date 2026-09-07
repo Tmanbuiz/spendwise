@@ -1,3 +1,7 @@
+import '../planning/backup_screen.dart';
+import '../planning/bills_screen.dart';
+import '../planning/alerts_screen.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -45,8 +49,8 @@ class SettingsScreen extends ConsumerWidget {
                   subtitle: !access.isSupportedPlatform
                       ? 'Android only — not available on this device'
                       : granted
-                          ? 'On — purchases are recorded automatically'
-                          : 'Off — nothing is being captured',
+                      ? 'On — purchases are recorded automatically'
+                      : 'Off — nothing is being captured',
                   ok: granted,
                   warn: access.isSupportedPlatform && !granted,
                   onTap: () => context.push(Routes.notificationAccess),
@@ -67,8 +71,9 @@ class SettingsScreen extends ConsumerWidget {
                 ListTile(
                   leading: const Icon(Icons.science_outlined),
                   title: const Text('Test the parser'),
-                  subtitle:
-                      const Text('Paste a notification and see how it reads'),
+                  subtitle: const Text(
+                    'Paste a notification and see how it reads',
+                  ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => context.push(Routes.debug),
                 ),
@@ -86,7 +91,7 @@ class SettingsScreen extends ConsumerWidget {
                         count == 0
                             ? 'No errors recorded'
                             : '$count error${count == 1 ? '' : 's'} recorded — '
-                                'tap to see what failed',
+                                  'tap to see what failed',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: count > 0
                               ? AppTheme.negative
@@ -97,6 +102,44 @@ class SettingsScreen extends ConsumerWidget {
                       onTap: () => context.push(Routes.diagnostics),
                     );
                   },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          const SectionHeader(title: 'Planning and protection'),
+          SectionCard(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.backup_outlined),
+                  title: const Text('Backup and restore'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const BackupScreen(),
+                    ),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.event_repeat),
+                  title: const Text('Recurring bills'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const BillsScreen(),
+                    ),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.notifications_outlined),
+                  title: const Text('Budget alerts'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AlertsScreen(),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -143,8 +186,8 @@ class SettingsScreen extends ConsumerWidget {
                     Env.aggregatorEnabled
                         ? 'Pull full transaction history from your bank'
                         : 'Not set up — SpendWise is reading notifications '
-                            'only, so it sees what your bank chooses to '
-                            'push.',
+                              'only, so it sees what your bank chooses to '
+                              'push.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -200,10 +243,10 @@ class SettingsScreen extends ConsumerWidget {
                 Text(
                   isRemote
                       ? 'Row Level Security means only your account can read '
-                          'or write your rows.'
+                            'or write your rows.'
                       : 'No Supabase project is configured, so nothing leaves '
-                          'this phone and nothing is backed up. Add your '
-                          'Supabase URL and key to .env to enable sync.',
+                            'this phone and nothing is backed up. Add your '
+                            'Supabase URL and key to .env to enable sync.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                     height: 1.45,
@@ -235,8 +278,10 @@ class SettingsScreen extends ConsumerWidget {
                     subtitle: const Text('Supabase account'),
                   ),
                   ListTile(
-                    leading: Icon(Icons.logout_rounded,
-                        color: theme.colorScheme.error),
+                    leading: Icon(
+                      Icons.logout_rounded,
+                      color: theme.colorScheme.error,
+                    ),
                     title: Text(
                       'Sign out',
                       style: TextStyle(color: theme.colorScheme.error),
@@ -281,10 +326,7 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               for (var day = 1; day <= 28; day++)
-                RadioListTile<int>(
-                  value: day,
-                  title: Text('Day $day'),
-                ),
+                RadioListTile<int>(value: day, title: Text('Day $day')),
             ],
           ),
         ),
@@ -328,10 +370,8 @@ class _DetectedAppsTile extends ConsumerWidget {
         subtitle: Text(
           found.isEmpty
               ? 'None found. Without the bank app installed, no alerts can '
-                  'reach SpendWise.'
-              : found.entries
-                  .map((e) => '${e.value}  ·  ${e.key}')
-                  .join('\n'),
+                    'reach SpendWise.'
+              : found.entries.map((e) => '${e.value}  ·  ${e.key}').join('\n'),
           style: theme.textTheme.bodySmall?.copyWith(
             color: found.isEmpty
                 ? AppTheme.warning
@@ -377,7 +417,8 @@ class _CaptureStatsTile extends ConsumerWidget {
           );
         }
 
-        final healthy = data.listenerConnected && data.watchedPackages.isNotEmpty;
+        final healthy =
+            data.listenerConnected && data.watchedPackages.isNotEmpty;
 
         return ListTile(
           leading: Icon(
@@ -391,8 +432,7 @@ class _CaptureStatsTile extends ConsumerWidget {
                   '${data.matched} from your banks',
               if (data.pending > 0)
                 '${data.pending} waiting — tap to process now',
-              if (!data.listenerConnected)
-                'Listener not connected to Android',
+              if (!data.listenerConnected) 'Listener not connected to Android',
               if (data.watchedPackages.isEmpty)
                 'No packages being watched — reselect your banks',
             ].join('\n'),
@@ -405,8 +445,9 @@ class _CaptureStatsTile extends ConsumerWidget {
           isThreeLine: !healthy || data.pending > 0,
           trailing: const Icon(Icons.refresh_rounded),
           onTap: () async {
-            final captured =
-                await ref.read(captureControllerProvider).drainPending(rescanFirst: true);
+            final captured = await ref
+                .read(captureControllerProvider)
+                .drainPending(rescanFirst: true);
             ref.invalidate(captureStatsProvider);
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
@@ -415,7 +456,7 @@ class _CaptureStatsTile extends ConsumerWidget {
                   captured == 0
                       ? 'Nothing waiting to be processed.'
                       : 'Added $captured transaction'
-                          '${captured == 1 ? '' : 's'}.',
+                            '${captured == 1 ? '' : 's'}.',
                 ),
               ),
             );
@@ -449,8 +490,8 @@ class _StatusTile extends StatelessWidget {
     final color = ok
         ? AppTheme.positive
         : warn
-            ? AppTheme.warning
-            : theme.colorScheme.onSurfaceVariant;
+        ? AppTheme.warning
+        : theme.colorScheme.onSurfaceVariant;
 
     return ListTile(
       onTap: onTap,

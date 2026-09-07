@@ -25,11 +25,10 @@ class StatementImportScreen extends ConsumerStatefulWidget {
       _StatementImportScreenState();
 }
 
-class _StatementImportScreenState
-    extends ConsumerState<StatementImportScreen> {
-  StatementPreview? _preview;
-  File? _file;
-  AmountSign? _signOverride;
+class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
+  final List<StatementPreview> _previews = [];
+  List<File> _files = [];
+  final Map<String, AmountSign> _signOverrides = {};
   bool _busy = false;
   String? _error;
 
@@ -43,19 +42,28 @@ class _StatementImportScreenState
     });
 
     try {
-      final picked = await FilePicker.pickFile(
-        dialogTitle: 'Choose a statement',
+      final picked = await FilePicker.pickFiles(
+        dialogTitle: 'Choose up to 6 statements',
         type: FileType.custom,
         allowedExtensions: <String>['csv', 'pdf', 'txt'],
       );
-      final path = picked?.path;
-      if (path == null) {
+      if (!mounted) return;
+      if (picked.isEmpty) {
         setState(() => _busy = false);
         return;
       }
-      _file = File(path);
+      if (picked.length > 6 || picked.any((file) => file.path == null)) {
+        setState(() {
+          _error = 'Choose up to 6 files downloaded to your phone.';
+          _busy = false;
+        });
+        return;
+      }
+      _files = picked.map((file) => File(file.path!)).toList();
+      _signOverrides.clear();
       await _buildPreview();
     } on Object catch (error) {
+      if (!mounted) return;
       setState(() {
         _error = 'Could not read that file. $error';
         _busy = false;
@@ -64,68 +72,107 @@ class _StatementImportScreenState
   }
 
   Future<void> _buildPreview() async {
-    final file = _file;
-    if (file == null) return;
+    if (_files.isEmpty) return;
 
     setState(() {
       _busy = true;
       _error = null;
+      _previews.clear();
     });
 
     try {
-      final existing =
-          ref.read(transactionsProvider).value ?? const <AppTransaction>[];
-      final preview = await _service.preview(
-        file,
-        existing: existing,
-        categorizer: ref.read(categorizerProvider),
-        signOverride: _signOverride,
+      final existing = List<AppTransaction>.from(
+        await ref.read(transactionsProvider.future),
       );
+      if (!mounted) return;
+      for (final file in _files) {
+        final preview = await _service.preview(
+          file,
+          existing: existing,
+          categorizer: ref.read(categorizerProvider),
+          signOverride: _signOverrides[file.path],
+        );
+        if (!mounted) return;
+        _previews.add(preview);
+        for (final transaction in _service.apply(
+          preview.result,
+          existing: existing,
+          categorizer: ref.read(categorizerProvider),
+        )) {
+          existing.removeWhere((old) => old.id == transaction.id);
+          existing.add(transaction);
+        }
+      }
       setState(() {
-        _preview = preview;
         _busy = false;
       });
     } on Object catch (error) {
+      if (!mounted) return;
       setState(() {
-        _error = 'Could not read that file. $error';
+        _previews.clear();
+        _error =
+            'Could not read all statements. Try selecting unlocked, text-based PDFs or CSV files. $error';
         _busy = false;
       });
     }
   }
 
   Future<void> _import() async {
-    final preview = _preview;
-    if (preview == null) return;
+    if (_previews.isEmpty) return;
 
     setState(() => _busy = true);
 
-    final existing =
-        ref.read(transactionsProvider).value ?? const <AppTransaction>[];
-    final writes = _service.apply(
-      preview.result,
-      existing: existing,
-      categorizer: ref.read(categorizerProvider),
-    );
+    var saved = 0;
+    try {
+      final existing = List<AppTransaction>.from(
+        await ref.read(transactionsProvider.future),
+      );
+      if (!mounted) return;
+      for (final preview in _previews) {
+        final writes = _service.apply(
+          preview.result,
+          existing: existing,
+          categorizer: ref.read(categorizerProvider),
+        );
 
-    for (final transaction in writes) {
-      await ref.read(transactionsProvider.notifier).upsert(transaction);
+        for (final transaction in writes) {
+          await ref.read(transactionsProvider.notifier).upsert(transaction);
+          existing.removeWhere((old) => old.id == transaction.id);
+          existing.add(transaction);
+          saved++;
+        }
+      }
+
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Saved $saved transactions to history.')),
+      );
+      Navigator.of(context).pop();
+    } on Object catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error =
+            'Saved $saved transactions before the import stopped. You can retry; already imported rows will not be duplicated.';
+      });
     }
-
-    if (!mounted) return;
-    setState(() => _busy = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Imported ${writes.length} transactions.')),
-    );
-    Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final preview = _preview;
+    final newCount = _previews.fold<int>(
+      0,
+      (sum, p) => sum + p.willInsert.length,
+    );
+    final mergeCount = _previews.fold<int>(
+      0,
+      (sum, p) => sum + p.willMerge.length,
+    );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Import a statement')),
+      appBar: AppBar(title: const Text('Import statements')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
         children: <Widget>[
@@ -133,10 +180,14 @@ class _StatementImportScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text('Where to get the file',
-                    style: theme.textTheme.titleMedium),
+                Text(
+                  'Import up to 6 statements together',
+                  style: theme.textTheme.titleMedium,
+                ),
                 const SizedBox(height: 8),
                 Text(
+                  'Touch and hold a file in the picker to select several. '
+                  'Review each file below before adding it to history.\n\n'
                   'CIBC online banking → pick an account → Download '
                   'transactions → CSV.\n'
                   'Wealthsimple → Activity → export.',
@@ -168,7 +219,9 @@ class _StatementImportScreenState
                   onPressed: _busy ? null : _pickFile,
                   icon: const Icon(Icons.upload_file_rounded),
                   label: Text(
-                    _file == null ? 'Choose a file' : 'Choose a different file',
+                    _files.isEmpty
+                        ? 'Choose statements'
+                        : 'Choose different statements',
                   ),
                 ),
               ],
@@ -183,43 +236,51 @@ class _StatementImportScreenState
             SectionCard(
               child: Text(
                 _error!,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.error),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
               ),
             ),
           ],
-          if (preview != null && !_busy) ...<Widget>[
-            const SizedBox(height: 20),
-            _PreviewCard(
-              preview: preview,
-              signOverride: _signOverride,
-              onFlipSign: () {
-                setState(() {
-                  _signOverride =
-                      preview.result.signConvention == AmountSign.negativeIsSpending
-                          ? AmountSign.positiveIsSpending
-                          : AmountSign.negativeIsSpending;
-                });
-                _buildPreview();
-              },
+          if (_previews.isNotEmpty && !_busy) ...<Widget>[
+            const SizedBox(height: 16),
+            Text(
+              '${_previews.length} statements · $newCount new · $mergeCount matching',
             ),
-            const SizedBox(height: 20),
-            if (preview.isEmpty)
-              SectionCard(
-                child: Text(
-                  'No transactions could be read from that file. If it is a '
-                  'PDF, try the CSV export instead.',
-                  style: theme.textTheme.bodySmall,
-                ),
-              )
-            else
-              FilledButton(
-                onPressed: _import,
-                child: Text(
-                  'Import ${preview.willInsert.length} new'
-                  '${preview.willMerge.isEmpty ? '' : ', update ${preview.willMerge.length}'}',
-                ),
+            for (final preview in _previews) ...<Widget>[
+              const SizedBox(height: 20),
+              _PreviewCard(
+                preview: preview,
+                signOverride:
+                    _signOverrides[_files[_previews.indexOf(preview)].path],
+                onFlipSign: () {
+                  setState(() {
+                    _signOverrides[_files[_previews.indexOf(preview)].path] =
+                        preview.result.signConvention ==
+                            AmountSign.negativeIsSpending
+                        ? AmountSign.positiveIsSpending
+                        : AmountSign.negativeIsSpending;
+                  });
+                  _buildPreview();
+                },
               ),
+              const SizedBox(height: 20),
+              if (preview.isEmpty)
+                SectionCard(
+                  child: Text(
+                    'No transactions could be read from that file. If it is a '
+                    'PDF, try the CSV export instead.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+            ],
+            FilledButton(
+              onPressed: newCount + mergeCount == 0 ? null : _import,
+              child: Text(
+                'Import $newCount new'
+                '${mergeCount == 0 ? '' : ', update $mergeCount'}',
+              ),
+            ),
           ],
         ],
       ),
@@ -257,17 +318,16 @@ class _PreviewCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(preview.fileName,
-                    style: theme.textTheme.labelLarge,
-                    overflow: TextOverflow.ellipsis),
+                child: Text(
+                  preview.fileName,
+                  style: theme.textTheme.labelLarge,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),
           const Divider(height: 24),
-          _Line(
-            label: 'Rows read',
-            value: '${preview.result.rows.length}',
-          ),
+          _Line(label: 'Rows read', value: '${preview.result.rows.length}'),
           _Line(
             label: 'New transactions',
             value: '${preview.willInsert.length}',
@@ -388,13 +448,14 @@ class _Line extends StatelessWidget {
           ),
           Text(
             value,
-            style: (emphasise
-                    ? theme.textTheme.titleMedium
-                    : theme.textTheme.bodyMedium)
-                ?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: warn ? AppTheme.warning : null,
-            ),
+            style:
+                (emphasise
+                        ? theme.textTheme.titleMedium
+                        : theme.textTheme.bodyMedium)
+                    ?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: warn ? AppTheme.warning : null,
+                    ),
           ),
         ],
       ),
