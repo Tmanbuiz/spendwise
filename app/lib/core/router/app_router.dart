@@ -4,22 +4,25 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/models/app_transaction.dart';
 import '../../features/accounts/accounts_screen.dart';
+import '../../features/assistant/ask_spendwise_screen.dart';
+import '../../features/assistant/financial_rules_screen.dart';
 import '../../features/auth/auth_screen.dart';
 import '../../features/budgets/budgets_screen.dart';
 import '../../features/categories/categories_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
-import '../../features/insights/insights_screen.dart';
 import '../../features/debug/parser_debug_screen.dart';
+import '../../features/import/statement_import_screen.dart';
+import '../../features/insights/insights_screen.dart';
 import '../../features/onboarding/bank_selection_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/onboarding/permission_screen.dart';
-import '../../features/import/statement_import_screen.dart';
 import '../../features/settings/diagnostics_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/shell/home_shell.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/transactions/transaction_detail_screen.dart';
 import '../../features/transactions/transactions_screen.dart';
+import '../../features/vault/financial_vault_screen.dart';
 import '../../state/providers.dart';
 import '../config/env.dart';
 
@@ -31,11 +34,11 @@ abstract final class Routes {
   static const bankSelection = '/onboarding/banks';
   static const permission = '/onboarding/permission';
 
-  // Standalone versions, reachable from Settings after setup is done.
+  // Standalone versions, reachable after setup is done.
   //
-  // Separate paths rather than reusing the ones above, because the redirect
-  // sends every `/onboarding/*` route to the dashboard once onboarding is
-  // complete — which silently bounced the user straight back out of Settings.
+  // Separate paths rather than reusing the onboarding versions, because the
+  // redirect sends every `/onboarding/*` route to the dashboard once
+  // onboarding is complete.
   static const banks = '/banks';
   static const notificationAccess = '/notification-access';
   static const dashboard = '/home';
@@ -48,6 +51,9 @@ abstract final class Routes {
   static const debug = '/debug';
   static const diagnostics = '/diagnostics';
   static const importStatement = '/import';
+  static const vault = '/vault';
+  static const assistant = '/ask';
+  static const financialRules = '/financial-rules';
   static const transactionDetail = 'transaction';
 }
 
@@ -111,13 +117,25 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (_, _) => const StatementImportScreen(),
       ),
       GoRoute(
+        path: Routes.vault,
+        builder: (_, _) => const FinancialVaultScreen(),
+      ),
+      GoRoute(
+        path: Routes.assistant,
+        builder: (_, _) => const AskSpendWiseScreen(),
+      ),
+      GoRoute(
+        path: Routes.financialRules,
+        builder: (_, _) => const FinancialRulesScreen(),
+      ),
+      GoRoute(
         path: '/transaction',
         builder: (context, state) => TransactionDetailScreen(
           transaction: state.extra as AppTransaction?,
         ),
       ),
-      // The four tabs live inside a persistent shell so the bottom bar does
-      // not rebuild or animate away when switching between them.
+      // The five primary tabs live inside a persistent shell so the bottom bar
+      // does not rebuild or animate away when switching between them.
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => HomeShell(shell: shell),
         branches: <StatefulShellBranch>[
