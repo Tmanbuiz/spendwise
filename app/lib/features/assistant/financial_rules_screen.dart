@@ -6,6 +6,7 @@ import '../../data/models/financial_rule.dart';
 import '../../state/financial_providers.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
+import '../../widgets/insight_widgets.dart';
 
 class FinancialRulesScreen extends ConsumerWidget {
   const FinancialRulesScreen({super.key});
@@ -68,7 +69,7 @@ class FinancialRulesScreen extends ConsumerWidget {
         label: const Text('Add rule'),
       ),
       body: RefreshIndicator(
-        onRefresh: () => ref.read(financialRulesProvider.notifier).build(),
+        onRefresh: () => ref.read(financialRulesProvider.notifier).refresh(),
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 104),
           children: <Widget>[
@@ -374,7 +375,7 @@ class _RuleEditorState extends State<_RuleEditor> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<FinancialRuleKind>(
-                  value: _kind,
+                  initialValue: _kind,
                   decoration: const InputDecoration(labelText: 'Treat it as'),
                   items: <DropdownMenuItem<FinancialRuleKind>>[
                     for (final kind in FinancialRuleKind.values)
@@ -384,7 +385,7 @@ class _RuleEditorState extends State<_RuleEditor> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<FinancialRuleMatch>(
-                  value: _match,
+                  initialValue: _match,
                   decoration: const InputDecoration(labelText: 'Matching method'),
                   items: <DropdownMenuItem<FinancialRuleMatch>>[
                     for (final match in FinancialRuleMatch.values)
