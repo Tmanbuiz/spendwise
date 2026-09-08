@@ -19,6 +19,7 @@ export 'src/duplicate_detector.dart';
 export 'src/import/card_statement_reader.dart';
 export 'src/import/csv_reader.dart';
 export 'src/import/statement_reader.dart';
+export 'src/import/statement_splitter.dart';
 export 'src/import/text_statement_reader.dart';
 export 'src/models/money.dart';
 export 'src/models/notification_message.dart';

@@ -232,7 +232,15 @@ abstract final class CardStatementReader {
       if (_bareMoney.hasMatch(line)) {
         if (awaitingTotalFor != null) {
           final cents = _parseCents(line);
-          if (cents != null) declared[awaitingTotalFor!] = cents.abs();
+          if (cents != null) {
+            // Added rather than assigned, because a statement covering more
+            // than one card prints "Total for <card>" once per card. Taking
+            // only the last left the check comparing every row against one
+            // card's subtotal, which rejected a correct parse of a statement
+            // whose second card carried a single $6.29 purchase.
+            declared[awaitingTotalFor!] =
+                (declared[awaitingTotalFor!] ?? 0) + cents.abs();
+          }
           awaitingTotalFor = null;
           discard();
           continue;

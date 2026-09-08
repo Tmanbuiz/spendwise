@@ -510,12 +510,18 @@ Closing balance
     // against a statement read on its own, a real merged file lost 36 of 39
     // transactions and misreported the 3 that survived — and reported
     // success. Refusing is the only honest answer.
-    String statement(String product, int pages, String merchant, String amount) =>
+    String statement(
+      String product,
+      String period,
+      String merchant,
+      String amount,
+    ) =>
         '''
 $product
+$period statement period
 Account number
 4500 XXXX XXXX 2199
-Page 1 of $pages
+Page 1 of 3
 Your new charges and credits
 Trans
 date
@@ -531,28 +537,94 @@ $amount
 
     test('one statement is read normally', () {
       final text =
-          statement('CIBC Dividend Visa', 2, 'WAL-MART SUPERCENTER', '5.11');
-      expect(TextStatementReader.statementCount(text), 1);
+          statement('CIBC Dividend Visa', 'August', 'WAL-MART SUPERCENTER', '5.11');
+      expect(StatementSplitter.split(text), hasLength(1));
       final result = TextStatementReader.read(text, year: 2026);
       expect(result.rows, isNotEmpty);
       expect(result.problems, isEmpty);
     });
 
-    test('two statements are refused rather than half-read', () {
-      final text =
-          '${statement('CIBC Dividend Visa', 2, 'WAL-MART SUPERCENTER', '5.11')}'
-          '\n'
-          '${statement('CIBC Adapta Mastercard', 3, 'VICTORY MEAT MARKET', '19.04')}';
+    test('a continuation page does not start a new statement', () {
+      // Every page after the first repeats the title and the period. Cutting
+      // on those would split one statement into as many pieces as it has
+      // pages; only the first page carries "August statement period".
+      const text = '''
+CIBC Dividend Visa
+August statement period
+Your new charges and credits
+Trans
+date
+Post
+date
+Description
+Amount(\$)
+Jun 13
+Jun 16
+WAL-MART SUPERCENTER
+5.11
+Page 1 of 3
+CIBC Dividend Visa
+Jul 16 to Aug 15, 2026
+Account number: 4500 XXXX XXXX 2199
+Page 2 of 3
+Jun 14
+Jun 17
+VICTORY MEAT MARKET
+19.04
+''';
 
-      expect(TextStatementReader.statementCount(text), 2);
+      expect(StatementSplitter.split(text), hasLength(1));
+      expect(TextStatementReader.read(text, year: 2026).rows, hasLength(2));
+    });
+
+    test('a statement whose totals disagree is left out and reported', () {
+      // A segment that does not reproduce its own printed totals is the one
+      // case where importing is worse than refusing: the rows look perfectly
+      // well-formed. Splitting is only safe because of this.
+      final good =
+          statement('CIBC Dividend Visa', 'August', 'WAL-MART SUPERCENTER', '5.11');
+      final bad =
+          '${statement('CIBC Adapta Mastercard', 'July', 'VICTORY MEAT MARKET', '19.04')}'
+          'Total for\n4500 XXXX XXXX 2199\n\$999.99\n';
+
+      final result = TextStatementReader.read('$good\n$bad', year: 2026);
+
+      expect(result.rows.map((r) => r.description),
+          contains('WAL-MART SUPERCENTER'));
+      expect(result.rows.map((r) => r.description),
+          isNot(contains('VICTORY MEAT MARKET')));
+      expect(result.problems, hasLength(1));
+      expect(result.problems.single.reason, contains('does not match'));
+    });
+
+    test('two statements are read one at a time, not as one document', () {
+      final text =
+          '${statement('CIBC Dividend Visa', 'August', 'WAL-MART SUPERCENTER', '5.11')}'
+          '\n'
+          '${statement('CIBC Adapta Mastercard', 'July', 'VICTORY MEAT MARKET', '19.04')}';
+
+      expect(StatementSplitter.split(text), hasLength(2));
       final result = TextStatementReader.read(text, year: 2026);
 
-      expect(result.rows, isEmpty,
-          reason: 'importing part of a merged file is worse than importing '
-              'none of it');
-      expect(result.problems, hasLength(1));
-      expect(result.problems.single.reason, contains('2 statements'));
-      expect(result.problems.single.reason, contains('one at a time'));
+      final descriptions = result.rows.map((r) => r.description).toList();
+      expect(descriptions, contains('WAL-MART SUPERCENTER'));
+      expect(descriptions, contains('VICTORY MEAT MARKET'));
+      expect(result.rows, hasLength(2));
+    });
+
+    test('each statement keeps its own amounts across the boundary', () {
+      final text =
+          '${statement('CIBC Dividend Visa', 'August', 'WAL-MART SUPERCENTER', '5.11')}'
+          '\n'
+          '${statement('CIBC Adapta Mastercard', 'July', 'VICTORY MEAT MARKET', '19.04')}';
+
+      final result = TextStatementReader.read(text, year: 2026);
+      final byMerchant = <String, int>{
+        for (final row in result.rows) row.description: row.amount.cents,
+      };
+
+      expect(byMerchant['WAL-MART SUPERCENTER'], 511);
+      expect(byMerchant['VICTORY MEAT MARKET'], 1904);
     });
 
     test('a single-page statement that never numbers itself still reads', () {

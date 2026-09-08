@@ -2,6 +2,7 @@ import '../models/money.dart';
 import '../models/transaction_event_type.dart';
 import 'card_statement_reader.dart';
 import 'statement_reader.dart';
+import 'statement_splitter.dart';
 
 /// Reads transactions out of statement *text*, as extracted from a PDF.
 ///
@@ -88,35 +89,43 @@ abstract final class TextStatementReader {
     int? year,
     AmountSign? signOverride,
   }) {
-    // Several statements concatenated into one file cannot be read as one
-    // document, and failing at it is silent: the reader picks a single layout
-    // for the whole file, carries one statement's running balance into the
-    // next, and resolves every date against one year. Measured against a
-    // single statement read on its own, a merged file lost 36 of 39
-    // transactions and misreported the amounts of the 3 that survived — while
-    // reporting success.
+    // Several statements in one file are read one at a time, never as a
+    // single document. Read whole, the failure is silent: one layout is
+    // chosen for the entire file, a statement's running balance carries into
+    // the next, and every date resolves against one inferred year. Measured
+    // against a statement read on its own, a real merged file lost 36 of its
+    // 39 transactions and misreported the 3 that survived — while reporting
+    // success.
     //
-    // Splitting them apart automatically is guesswork of exactly the kind
-    // that produced the wrong numbers in the first place, so this refuses
-    // instead and says what to do. Importing the same statements one at a
-    // time reads them correctly.
-    final statements = statementCount(text);
-    if (statements > 1) {
-      return StatementImport(
-        rows: const <StatementRow>[],
-        problems: <StatementProblem>[
-          StatementProblem(
-            1,
-            'This file holds $statements statements joined together. Import '
-            'them one at a time — a merged file cannot be read reliably.',
-            '',
-          ),
-        ],
-        layout: null,
-        signConvention: AmountSign.negativeIsSpending,
+    // Splitting is only safe because each segment is then checked against the
+    // totals its own statement prints. A segment that does not reproduce them
+    // is left out rather than imported, so a bad cut surfaces as a stated
+    // refusal instead of as plausible-looking numbers.
+    final segments = StatementSplitter.split(text);
+    if (segments.length > 1) {
+      return _readSegments(
+        segments,
+        currency: currency,
+        year: year,
+        signOverride: signOverride,
       );
     }
 
+    return _readOne(
+      text,
+      currency: currency,
+      year: year,
+      signOverride: signOverride,
+    );
+  }
+
+  /// Reads one statement, choosing the layout that fits it.
+  static StatementImport _readOne(
+    String text, {
+    required String currency,
+    int? year,
+    AmountSign? signOverride,
+  }) {
     if (CardStatementReader.looksLikeCardStatement(text)) {
       return CardStatementReader.read(text, currency: currency, year: year);
     }
@@ -137,6 +146,83 @@ abstract final class TextStatementReader {
     // shown a silent empty result.
     return byRow.problems.isNotEmpty ? byRow : byCell;
   }
+
+  /// Reads each statement in a merged file on its own terms and keeps the ones
+  /// that hold up.
+  ///
+  /// A statement that prints totals must reproduce them to be accepted. One
+  /// that prints none cannot be checked, so it is accepted on the same footing
+  /// as if it had been imported by itself — no worse, and no better.
+  static StatementImport _readSegments(
+    List<String> segments, {
+    required String currency,
+    int? year,
+    AmountSign? signOverride,
+  }) {
+    final rows = <StatementRow>[];
+    final problems = <StatementProblem>[];
+    final checks = <StatementCheck>[];
+    var accepted = 0;
+
+    for (var i = 0; i < segments.length; i++) {
+      final one = _readOne(
+        segments[i],
+        currency: currency,
+        year: year,
+        signOverride: signOverride,
+      );
+
+      if (one.rows.isEmpty) {
+        // A cover page or a segment holding no table. Nothing to import and
+        // nothing wrong; saying so would only be noise.
+        continue;
+      }
+
+      if (one.checks.isNotEmpty && !one.verified) {
+        final failed = one.failedChecks
+            .map((c) => '${c.label} reads '
+                '${_money(c.readCents)} but the statement says '
+                '${_money(c.declaredCents)}')
+            .join('; ');
+        problems.add(
+          StatementProblem(
+            i + 1,
+            'Statement ${i + 1} of ${segments.length} does not match its own '
+            'totals and was left out — $failed',
+            '',
+          ),
+        );
+        continue;
+      }
+
+      rows.addAll(one.rows);
+      problems.addAll(one.problems);
+      checks.addAll(one.checks);
+      accepted++;
+    }
+
+    if (accepted == 0 && problems.isEmpty) {
+      problems.add(
+        StatementProblem(
+          1,
+          'This file holds ${segments.length} statements but no transactions '
+          'could be read from any of them.',
+          '',
+        ),
+      );
+    }
+
+    return StatementImport(
+      rows: rows,
+      problems: problems,
+      layout: null,
+      signConvention: signOverride ?? AmountSign.debitCreditColumns,
+      checks: checks,
+    );
+  }
+
+  static String _money(int cents) =>
+      '\$${(cents / 100).toStringAsFixed(2)}';
 
   static StatementImport _readRowPerLine(
     String text, {
