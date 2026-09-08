@@ -11,6 +11,19 @@ abstract final class BuiltInRules {
   static MerchantRule _r(String pattern, SpendCategory category) =>
       MerchantRule(pattern: pattern, category: category);
 
+  /// A rule that must match a whole word.
+  ///
+  /// Needed where a brand name is a prefix of an ordinary word: `MOBIL`, the
+  /// fuel brand, is contained in `FIDO Mobile` and in every other phone bill
+  /// with "Mobile" in it, and because the longest match wins it beat `FIDO`
+  /// and filed the phone bill under Gas.
+  static MerchantRule _word(String pattern, SpendCategory category) =>
+      MerchantRule(
+        pattern: r'\b' + pattern + r'\b',
+        category: category,
+        match: RuleMatch.regex,
+      );
+
   static final List<MerchantRule> all = <MerchantRule>[
     ..._groceries,
     ..._dining,
@@ -23,6 +36,7 @@ abstract final class BuiltInRules {
     ..._housing,
     ..._health,
     ..._entertainment,
+    ..._insurance,
   ];
 
   static final List<MerchantRule> _groceries = <MerchantRule>[
@@ -56,11 +70,15 @@ abstract final class BuiltInRules {
   static final List<MerchantRule> _gas = <MerchantRule>[
     for (final name in <String>[
       'PETRO CANADA', 'PETRO-CANADA', 'PETROCANADA', 'ESSO', 'SHELL',
-      'HUSKY', 'ULTRAMAR', 'PIONEER ENERGY', 'MOBIL', 'CHEVRON', 'IRVING OIL',
+      'HUSKY', 'ULTRAMAR', 'PIONEER ENERGY', 'CHEVRON', 'IRVING OIL',
       'CO OP GAS', 'GAS BAR', 'PETROLEUM', 'CANADIAN TIRE GAS', 'COSTCO GAS',
       'FAS GAS', 'CIRCLE K',
     ])
       _r(name, SpendCategory.gas),
+
+    // Whole-word only: see [_word]. As a substring this matched every phone
+    // bill containing "Mobile".
+    _word('MOBIL', SpendCategory.gas),
   ];
 
   static final List<MerchantRule> _transportation = <MerchantRule>[
@@ -77,7 +95,11 @@ abstract final class BuiltInRules {
 
   static final List<MerchantRule> _shopping = <MerchantRule>[
     for (final name in <String>[
-      'AMAZON', 'WALMART', 'CANADIAN TIRE', 'HOME DEPOT', 'RONA', 'LOWES',
+      // Walmart prints itself hyphenated on a card statement
+      // (`WAL-MART SUPERCENTER#1067`), so the unhyphenated spelling alone
+      // matched none of them.
+      'AMAZON', 'WALMART', 'WAL-MART', 'WAL MART',
+      'CANADIAN TIRE', 'HOME DEPOT', 'RONA', 'LOWES',
       'IKEA', 'BEST BUY', 'HUDSONS BAY', 'THE BAY', 'WINNERS', 'MARSHALLS',
       'HOMESENSE', 'DOLLARAMA', 'GIANT TIGER', 'SPORT CHEK', 'MEC',
       'ALTITUDE SPORTS', 'INDIGO', 'CHAPTERS', 'STAPLES', 'TOYS R US',
@@ -89,14 +111,48 @@ abstract final class BuiltInRules {
       _r(name, SpendCategory.shopping),
   ];
 
+  /// Power, gas and water.
+  ///
+  /// The provincial utilities are listed by name because most are monopolies:
+  /// if a customer lives in New Brunswick, their electricity bill says
+  /// `ENERGIE NB POWER` and nothing else ever will. The list previously
+  /// covered Ontario, Quebec, BC and Alberta only, so every Atlantic and
+  /// Prairie customer's largest recurring bill landed in `other`.
   static final List<MerchantRule> _utilities = <MerchantRule>[
     for (final name in <String>[
+      // Ontario, Quebec, BC, Alberta
       'TORONTO HYDRO', 'HYDRO ONE', 'HYDRO QUEBEC', 'HYDRO-QUEBEC',
       'BC HYDRO', 'ENBRIDGE', 'FORTIS', 'EPCOR', 'ATCO', 'ALECTRA',
       'ELEXICON', 'DIRECT ENERGY', 'JUST ENERGY', 'RELIANCE HOME',
+      // Atlantic
+      'NB POWER', 'ENERGIE NB', 'ENERGIENB', 'SAINT JOHN ENERGY',
+      'NOVA SCOTIA POWER', 'MARITIME ELECTRIC', 'NEWFOUNDLAND POWER',
+      'NEWFOUNDLAND AND LABRADOR HYDRO', 'LIBERTY UTILITIES',
+      // Prairies and the North
+      'SASKPOWER', 'SASKENERGY', 'MANITOBA HYDRO', 'YUKON ENERGY',
+      'NORTHWEST TERRITORIES POWER', 'QULLIQ ENERGY',
+      // Generic, last resort
       'HYDRO', 'WATER UTILITY', 'CITY OF', 'REGION OF',
     ])
       _r(name, SpendCategory.utilities),
+  ];
+
+  /// Home, auto, tenant and life premiums.
+  ///
+  /// Worth naming individually because an insurer's charge carries only its
+  /// own name — nothing in `SONNET INSURANCE COMPANY WATERLOO ON` says which
+  /// kind of policy it is, or that it is a bill at all.
+  static final List<MerchantRule> _insurance = <MerchantRule>[
+    for (final name in <String>[
+      'SONNET INSURANCE', 'SONNET', 'INTACT INSURANCE', 'BELAIRDIRECT',
+      'BELAIR DIRECT', 'AVIVA', 'TD INSURANCE', 'DESJARDINS INSURANCE',
+      'CO-OPERATORS', 'COOPERATORS', 'WAWANESA', 'ECONOMICAL INSURANCE',
+      'JOHNSON INSURANCE', 'ONLIA', 'SQUARE ONE INSURANCE', 'ALLSTATE',
+      'STATE FARM', 'RSA INSURANCE', 'GORE MUTUAL', 'PEMBRIDGE',
+      'MANULIFE', 'SUN LIFE', 'CANADA LIFE', 'GREAT-WEST LIFE',
+      'BLUE CROSS', 'INSURANCE',
+    ])
+      _r(name, SpendCategory.insurance),
   ];
 
   static final List<MerchantRule> _phoneInternet = <MerchantRule>[

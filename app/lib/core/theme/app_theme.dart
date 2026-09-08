@@ -181,6 +181,10 @@ abstract final class AppTheme {
         return const Color(0xFFE11D48);
       case SpendCategory.entertainment:
         return const Color(0xFFF59E0B);
+      // Indigo: far enough from Housing's teal and Transportation's blue to
+      // stay separable where they are likely to sit side by side on the donut.
+      case SpendCategory.insurance:
+        return const Color(0xFF4F46E5);
       case SpendCategory.other:
         return const Color(0xFF64748B);
     }
@@ -210,6 +214,8 @@ abstract final class AppTheme {
         return Icons.favorite_outline;
       case SpendCategory.entertainment:
         return Icons.movie_outlined;
+      case SpendCategory.insurance:
+        return Icons.shield_outlined;
       case SpendCategory.other:
         return Icons.category_outlined;
     }

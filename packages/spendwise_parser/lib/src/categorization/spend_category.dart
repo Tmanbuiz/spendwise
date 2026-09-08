@@ -16,6 +16,16 @@ enum SpendCategory {
   housing('housing', 'Housing'),
   health('health', 'Health'),
   entertainment('entertainment', 'Entertainment'),
+
+  /// Home, auto, tenant and life premiums.
+  ///
+  /// Its own category rather than folded into Housing or Transportation,
+  /// because a premium is a fixed recurring cost that belongs to neither: home
+  /// and auto policies are routinely bought from one insurer on one schedule,
+  /// and burying them in two different categories hides a bill that is often
+  /// among the largest a household pays.
+  insurance('insurance', 'Insurance'),
+
   other('other', 'Other');
 
   const SpendCategory(this.slug, this.displayName);

@@ -1,0 +1,17 @@
+-- Adds Insurance to the spend categories.
+--
+-- Premiums were landing in `other`, which is where anything uncategorised
+-- goes, so a recurring bill that is often among the largest a household pays
+-- was indistinguishable from noise. Folding it into Housing or Transportation
+-- instead would split one insurer's home and auto policies across two
+-- categories and hide the total.
+--
+-- 0001_init.sql is not edited: it has already been applied wherever this
+-- project runs, and rewriting an applied migration means the schema in the
+-- repository stops matching the database it produced.
+--
+-- The value is appended rather than inserted in a sensible reading order,
+-- because Postgres enum ordering is physical: BEFORE/AFTER rewrites how every
+-- existing row sorts. Display order belongs to the client, which lists
+-- categories from the Dart enum.
+alter type spend_category add value if not exists 'insurance';

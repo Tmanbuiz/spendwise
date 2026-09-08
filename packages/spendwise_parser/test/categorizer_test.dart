@@ -234,4 +234,107 @@ void main() {
       expect(SpendCategory.fromSlug('nonsense'), SpendCategory.other);
     });
   });
+
+  group('bills that were landing in Other', () {
+    final categorizer = Categorizer();
+
+    SpendCategory of(String merchant) =>
+        categorizer.categoryFor(merchant.toUpperCase());
+
+    test('provincial power utilities outside Ontario are recognised', () {
+      // The list covered Ontario, Quebec, BC and Alberta, so an Atlantic or
+      // Prairie customer's largest recurring bill went uncategorised. These
+      // are monopolies: in New Brunswick the bill says ENERGIE NB POWER and
+      // nothing else ever will.
+      const power = <String>[
+        'PREAUTHORIZED DEBIT ENERGIENB POWER',
+        'NB POWER',
+        'SAINT JOHN ENERGY',
+        'NOVA SCOTIA POWER',
+        'MARITIME ELECTRIC',
+        'NEWFOUNDLAND POWER',
+        'SASKPOWER',
+        'MANITOBA HYDRO',
+      ];
+      for (final merchant in power) {
+        expect(of(merchant), SpendCategory.utilities, reason: merchant);
+      }
+    });
+
+    test('the Ontario and western utilities still work', () {
+      expect(of('TORONTO HYDRO'), SpendCategory.utilities);
+      expect(of('BC HYDRO'), SpendCategory.utilities);
+      expect(of('ENBRIDGE GAS'), SpendCategory.utilities);
+    });
+
+    test('insurers are recognised as insurance', () {
+      const insurers = <String>[
+        'SONNET INSURANCE COMPANY WATERLOO ON',
+        'INTACT INSURANCE',
+        'BELAIRDIRECT',
+        'TD INSURANCE',
+        'CO-OPERATORS',
+        'WAWANESA',
+        'MANULIFE',
+        'BLUE CROSS',
+      ];
+      for (final merchant in insurers) {
+        expect(of(merchant), SpendCategory.insurance, reason: merchant);
+      }
+    });
+
+    test('insurance does not swallow a merchant that merely says insurance',
+        () {
+      // A user rule always outranks built-in knowledge, so someone who calls
+      // their broker something else can still override this.
+      final withRule = Categorizer(userRules: <MerchantRule>[
+        const MerchantRule(
+          pattern: 'SONNET INSURANCE',
+          category: SpendCategory.housing,
+        ),
+      ]);
+      expect(
+        withRule.categoryFor('SONNET INSURANCE COMPANY WATERLOO ON'),
+        SpendCategory.housing,
+      );
+    });
+
+    test('Insurance is a real category, not a relabelled Other', () {
+      expect(SpendCategory.fromSlug('insurance'), SpendCategory.insurance);
+      expect(SpendCategory.insurance.displayName, 'Insurance');
+      expect(SpendCategory.values, contains(SpendCategory.insurance));
+    });
+  });
+
+  group('brand names that are prefixes of ordinary words', () {
+    final categorizer = Categorizer();
+
+    SpendCategory of(String merchant) =>
+        categorizer.categoryFor(merchant.toUpperCase());
+
+    test('a phone bill containing "Mobile" is not filed as fuel', () {
+      // MOBIL, the fuel brand, is a substring of "Mobile", and because the
+      // longest match wins it beat FIDO — so every Fido, Koodo and Bell
+      // Mobility bill was categorised as Gas.
+      expect(of('FIDO Mobile ******1582 888-481-3436 ON'),
+          SpendCategory.phoneInternet);
+      expect(of('BELL MOBILITY'), SpendCategory.phoneInternet);
+      expect(of('PUBLIC MOBILE'), SpendCategory.phoneInternet);
+      expect(of('VIRGIN MOBILE'), SpendCategory.phoneInternet);
+    });
+
+    test('the fuel brand itself still matches as a whole word', () {
+      expect(of('MOBIL'), SpendCategory.gas);
+      expect(of('MOBIL 12345 TORONTO ON'), SpendCategory.gas);
+    });
+
+    test('Walmart is recognised however it is spelled', () {
+      // Card statements print it hyphenated; the plain spelling matched none
+      // of them, leaving every Walmart purchase uncategorised.
+      expect(of('WAL-MART SUPERCENTER#1067FREDERICTON NB'),
+          SpendCategory.shopping);
+      expect(of('WALMART'), SpendCategory.shopping);
+      expect(of('WAL MART'), SpendCategory.shopping);
+    });
+  });
 }
