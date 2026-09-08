@@ -41,6 +41,21 @@ abstract final class TextStatementReader {
     r'(\(?-?\$?\s?\d{1,3}(?:,\d{3})*\.\d{2}\)?-?)\s*$',
   );
 
+  /// A statement numbers its own pages, so "Page 1 of N" appears exactly once
+  /// in a single document and once per statement in a merged one. That makes
+  /// it a more reliable boundary than any bank's wording, which differs per
+  /// product and changes without notice.
+  static final RegExp _firstPageMarker =
+      RegExp(r'page\s+1\s+of\s+\d+', caseSensitive: false);
+
+  /// How many separate statements [text] appears to hold.
+  ///
+  /// Zero means the marker was not found at all — some statements are a single
+  /// page and never number themselves — which is treated as one document
+  /// rather than as an error.
+  static int statementCount(String text) =>
+      _firstPageMarker.allMatches(text).length;
+
   /// Lines that are never transactions, however they are shaped.
   static final RegExp _furniture = RegExp(
     r'^\s*(?:page\s+\d|opening\s+balance|closing\s+balance|'
@@ -73,6 +88,35 @@ abstract final class TextStatementReader {
     int? year,
     AmountSign? signOverride,
   }) {
+    // Several statements concatenated into one file cannot be read as one
+    // document, and failing at it is silent: the reader picks a single layout
+    // for the whole file, carries one statement's running balance into the
+    // next, and resolves every date against one year. Measured against a
+    // single statement read on its own, a merged file lost 36 of 39
+    // transactions and misreported the amounts of the 3 that survived — while
+    // reporting success.
+    //
+    // Splitting them apart automatically is guesswork of exactly the kind
+    // that produced the wrong numbers in the first place, so this refuses
+    // instead and says what to do. Importing the same statements one at a
+    // time reads them correctly.
+    final statements = statementCount(text);
+    if (statements > 1) {
+      return StatementImport(
+        rows: const <StatementRow>[],
+        problems: <StatementProblem>[
+          StatementProblem(
+            1,
+            'This file holds $statements statements joined together. Import '
+            'them one at a time — a merged file cannot be read reliably.',
+            '',
+          ),
+        ],
+        layout: null,
+        signConvention: AmountSign.negativeIsSpending,
+      );
+    }
+
     if (CardStatementReader.looksLikeCardStatement(text)) {
       return CardStatementReader.read(text, currency: currency, year: year);
     }

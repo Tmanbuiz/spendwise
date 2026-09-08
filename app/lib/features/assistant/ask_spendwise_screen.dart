@@ -9,6 +9,7 @@ import '../../services/financial_query_engine.dart';
 import '../../state/financial_providers.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
+import '../../widgets/insight_widgets.dart';
 
 class AskSpendWiseScreen extends ConsumerStatefulWidget {
   const AskSpendWiseScreen({super.key});

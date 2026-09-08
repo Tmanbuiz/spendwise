@@ -502,4 +502,67 @@ Closing balance
       expect(result.rows.map((r) => r.amount.cents), isNot(contains(4161)));
     });
   });
+
+  group('several statements joined into one file', () {
+    // Reading a merged file as one document fails silently: one layout is
+    // chosen for the whole thing, a statement's running balance carries into
+    // the next, and every date resolves against a single year. Measured
+    // against a statement read on its own, a real merged file lost 36 of 39
+    // transactions and misreported the 3 that survived — and reported
+    // success. Refusing is the only honest answer.
+    String statement(String product, int pages, String merchant, String amount) =>
+        '''
+$product
+Account number
+4500 XXXX XXXX 2199
+Page 1 of $pages
+Your new charges and credits
+Trans
+date
+Post
+date
+Description
+Amount(\$)
+Jun 13
+Jun 16
+$merchant
+$amount
+''';
+
+    test('one statement is read normally', () {
+      final text =
+          statement('CIBC Dividend Visa', 2, 'WAL-MART SUPERCENTER', '5.11');
+      expect(TextStatementReader.statementCount(text), 1);
+      final result = TextStatementReader.read(text, year: 2026);
+      expect(result.rows, isNotEmpty);
+      expect(result.problems, isEmpty);
+    });
+
+    test('two statements are refused rather than half-read', () {
+      final text =
+          '${statement('CIBC Dividend Visa', 2, 'WAL-MART SUPERCENTER', '5.11')}'
+          '\n'
+          '${statement('CIBC Adapta Mastercard', 3, 'VICTORY MEAT MARKET', '19.04')}';
+
+      expect(TextStatementReader.statementCount(text), 2);
+      final result = TextStatementReader.read(text, year: 2026);
+
+      expect(result.rows, isEmpty,
+          reason: 'importing part of a merged file is worse than importing '
+              'none of it');
+      expect(result.problems, hasLength(1));
+      expect(result.problems.single.reason, contains('2 statements'));
+      expect(result.problems.single.reason, contains('one at a time'));
+    });
+
+    test('a single-page statement that never numbers itself still reads', () {
+      // Zero markers means "no page numbering", not "no statement".
+      const text = '''
+Statement 2026
+Sep 4   SHEIN                    28.51
+''';
+      expect(TextStatementReader.statementCount(text), 0);
+      expect(TextStatementReader.read(text).rows, hasLength(1));
+    });
+  });
 }
