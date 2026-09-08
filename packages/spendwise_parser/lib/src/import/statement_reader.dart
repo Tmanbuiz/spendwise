@@ -68,6 +68,35 @@ class StatementLayout {
   bool get isUsable => dateColumn >= 0 && (amountColumn != null || usesDebitCredit);
 }
 
+/// A figure the statement states about itself, measured against what was read.
+///
+/// Statements total their own sections — "Total payments $900.00". Those
+/// figures are the only independent check available on a parse: if the rows
+/// do not add up to what the statement itself says, the reading is wrong,
+/// whatever it looks like. Every import bug found so far — a running balance
+/// read as an amount, a merged file losing 36 of 39 rows — was silent, and
+/// each one would have failed a check like this immediately.
+class StatementCheck {
+  const StatementCheck({
+    required this.label,
+    required this.declaredCents,
+    required this.readCents,
+  });
+
+  /// What the statement calls this figure, shown to the user as-is.
+  final String label;
+
+  /// The total the statement prints.
+  final int declaredCents;
+
+  /// The total of the rows actually read for it.
+  final int readCents;
+
+  int get differenceCents => readCents - declaredCents;
+
+  bool get agrees => differenceCents == 0;
+}
+
 /// The outcome of reading a statement file.
 class StatementImport {
   const StatementImport({
@@ -75,11 +104,31 @@ class StatementImport {
     required this.problems,
     required this.layout,
     required this.signConvention,
+    this.checks = const <StatementCheck>[],
   });
 
   final List<StatementRow> rows;
   final List<StatementProblem> problems;
   final StatementLayout? layout;
+
+  /// What the statement said about itself, and whether the parse matches.
+  final List<StatementCheck> checks;
+
+  /// Every figure the statement states about itself was reproduced exactly.
+  ///
+  /// False when a check disagrees *and* when there was nothing to check
+  /// against — see [unverifiable]. A caller that treats "not verified" as
+  /// "broken" would reject formats that simply print no totals, so the two
+  /// cases are kept apart.
+  bool get verified =>
+      checks.isNotEmpty && checks.every((check) => check.agrees);
+
+  /// The statement offered no total to check the parse against.
+  bool get unverifiable => checks.isEmpty;
+
+  /// The checks that did not reproduce.
+  List<StatementCheck> get failedChecks =>
+      checks.where((check) => !check.agrees).toList();
 
   /// Which sign meant "money out" in a single-amount file.
   final AmountSign signConvention;

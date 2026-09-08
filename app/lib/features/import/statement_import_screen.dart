@@ -428,6 +428,45 @@ class _PreviewCard extends StatelessWidget {
               value: '${preview.result.problems.length}',
               warn: true,
             ),
+
+          // The statement totals its own sections, so the parse can be
+          // measured against them. Showing the result is the point: an import
+          // that quietly disagreed with the statement is how every wrong
+          // figure got in here in the first place.
+          if (preview.result.checks.isNotEmpty) ...<Widget>[
+            const Divider(height: 24),
+            if (preview.result.verified)
+              _Line(
+                label: 'Checked against the statement',
+                value: 'every total matches',
+                emphasise: true,
+              )
+            else ...<Widget>[
+              _Line(
+                label: 'Does not match the statement',
+                value: '${preview.result.failedChecks.length} of '
+                    '${preview.result.checks.length}',
+                warn: true,
+              ),
+              for (final check in preview.result.failedChecks)
+                _Line(
+                  label: '  ${check.label}',
+                  value: '${Fmt.money(check.readCents)} read, '
+                      'statement says ${Fmt.money(check.declaredCents)}',
+                  warn: true,
+                ),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Importing this would record figures the statement does not '
+                  'agree with. Check the rows below before continuing.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ),
+            ],
+          ],
           if (preview.format == StatementFormat.csv &&
               preview.result.layout?.usesDebitCredit == false) ...<Widget>[
             const SizedBox(height: 12),

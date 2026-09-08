@@ -158,6 +158,14 @@ abstract final class CardStatementReader {
     var descriptions = <String>[];
     var recordLine = 0;
 
+    // What the statement says each section adds up to, and what was actually
+    // read for it. A statement that totals itself can be checked against the
+    // parse, which is the only independent evidence available that the
+    // reading is right.
+    final declared = <String, int>{};
+    final readTotals = <String, int>{};
+    String? awaitingTotalFor;
+
     void discard() {
       transDate = null;
       postDate = null;
@@ -168,9 +176,21 @@ abstract final class CardStatementReader {
       final line = lines[i].trim();
       if (line.isEmpty) continue;
 
+      // A section total is the statement checking its own arithmetic, and it
+      // is caught before the furniture rule below swallows it. The figure
+      // itself follows on a later line — "Total for" is separated from its
+      // amount by the card number — so the label only arms the capture.
+      final totalLabel = _totalLabelOf(line);
+      if (totalLabel != null) {
+        discard();
+        awaitingTotalFor = totalLabel;
+        continue;
+      }
+
       final heading = _sectionOf(line);
       if (heading != null) {
         discard();
+        awaitingTotalFor = null;
         section = heading;
         continue;
       }
@@ -210,6 +230,13 @@ abstract final class CardStatementReader {
       }
 
       if (_bareMoney.hasMatch(line)) {
+        if (awaitingTotalFor != null) {
+          final cents = _parseCents(line);
+          if (cents != null) declared[awaitingTotalFor!] = cents.abs();
+          awaitingTotalFor = null;
+          discard();
+          continue;
+        }
         if (transDate == null || postDate == null || descriptions.isEmpty) {
           // An amount with no row above it is a total or a summary figure.
           discard();
@@ -238,6 +265,21 @@ abstract final class CardStatementReader {
           eventType: _classify(description, cents, section),
           lineNumber: recordLine,
         ));
+
+        // Accumulate against the section's own total. Credits are subtracted
+        // because the statement's section total is a net figure: a cash-back
+        // credit reduces what the card charged that month.
+        //
+        // A trailing `***` marks an interest adjustment that CIBC states it
+        // excludes from "Total interest this period". The row is still a real
+        // movement and is kept, but counting it here would make the check
+        // disagree with the statement by exactly the adjustment — which is
+        // the parse being right and the check being wrong.
+        final key = _totalKeyOf(section);
+        if (key != null && !line.contains('*')) {
+          readTotals[key] = (readTotals[key] ?? 0) + cents;
+        }
+
         discard();
         continue;
       }
@@ -256,7 +298,56 @@ abstract final class CardStatementReader {
       problems: problems,
       layout: null,
       signConvention: AmountSign.debitCreditColumns,
+      checks: <StatementCheck>[
+        for (final entry in declared.entries)
+          StatementCheck(
+            label: _totalNames[entry.key] ?? entry.key,
+            declaredCents: entry.value,
+            // A section the statement totalled but where nothing was read is
+            // the most important case to report, not to skip: it is exactly
+            // what a whole missing section looks like.
+            readCents: (readTotals[entry.key] ?? 0).abs(),
+          ),
+      ],
     );
+  }
+
+  /// Section totals the statement prints about itself.
+  static const Map<String, String> _totalNames = <String, String>{
+    'payments': 'Total payments',
+    'interest': 'Total interest',
+    'fees': 'Total fees',
+    'charges': 'Total charges and credits',
+  };
+
+  /// Recognises a line that labels a section total, returning which section.
+  ///
+  /// Anchored at the start so a sentence merely containing the word "total" —
+  /// the legal small print is full of them — is not mistaken for one.
+  static String? _totalLabelOf(String line) {
+    final text = line.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (!text.startsWith('total')) return null;
+    if (text.startsWith('total payments')) return 'payments';
+    if (text.startsWith('total interest')) return 'interest';
+    if (text.startsWith('total fees')) return 'fees';
+    if (text.startsWith('total for')) return 'charges';
+    return null;
+  }
+
+  /// Which running total a row read in [section] contributes to.
+  static String? _totalKeyOf(CardStatementSection section) {
+    switch (section) {
+      case CardStatementSection.payments:
+        return 'payments';
+      case CardStatementSection.interest:
+        return 'interest';
+      case CardStatementSection.fees:
+        return 'fees';
+      case CardStatementSection.charges:
+        return 'charges';
+      case CardStatementSection.none:
+        return null;
+    }
   }
 
   static CardStatementSection? _sectionOf(String line) {

@@ -425,4 +425,76 @@ E-TRANSFER 106056182358
       expect(CardStatementReader.read(stray).rows, isEmpty);
     });
   });
+
+  group('the statement checks its own arithmetic', () {
+    // A statement totals its own sections, and those totals are the only
+    // independent evidence that a parse is right. Every import bug found so
+    // far was silent; each would have failed a check like this at once.
+    test('a correct parse reproduces every total the statement prints', () {
+      final result = CardStatementReader.read(_cardWithCategories);
+
+      expect(result.checks, isNotEmpty);
+      expect(result.unverifiable, isFalse);
+      for (final check in result.checks) {
+        expect(
+          check.readCents,
+          check.declaredCents,
+          reason: '${check.label} should reproduce exactly',
+        );
+      }
+      expect(result.verified, isTrue);
+      expect(result.failedChecks, isEmpty);
+    });
+
+    test('payments reconcile against the statement total', () {
+      final result = CardStatementReader.read(_cardWithCategories);
+      final payments =
+          result.checks.firstWhere((c) => c.label == 'Total payments');
+
+      // 50.00 + 129.00, the two payment rows in the fixture.
+      expect(payments.declaredCents, 17900);
+      expect(payments.readCents, 17900);
+      expect(payments.agrees, isTrue);
+    });
+
+    test('an interest adjustment marked *** is left out of the check', () {
+      // CIBC states these are excluded from "Total interest this period".
+      // Counting one would make the check disagree with the statement by
+      // exactly the adjustment — the parse being right and the check wrong.
+      final result = CardStatementReader.read(_cardWithCategories);
+      final interest =
+          result.checks.firstWhere((c) => c.label == 'Total interest');
+
+      expect(interest.agrees, isTrue);
+      expect(
+        result.rows.any((r) => r.description.contains('INTEREST REVERSAL')),
+        isTrue,
+        reason: 'the adjustment is still a real movement and is kept',
+      );
+    });
+
+    test('a dropped row is caught rather than reported as success', () {
+      // Delete one purchase from the charges table. The rows still look
+      // perfectly well-formed — this is exactly the failure that lost 36 of
+      // 39 transactions silently.
+      const intactRow = '''
+Jun 13
+Jun 16
+BLUE DOOR CAFE           FREDERICTON  NB
+
+Restaurants
+5.11
+''';
+      expect(_cardWithCategories, contains(intactRow));
+      final damaged = _cardWithCategories.replaceFirst(intactRow, '');
+
+      final result = CardStatementReader.read(damaged);
+      expect(
+        result.verified,
+        isFalse,
+        reason: 'a missing transaction must not pass verification',
+      );
+      expect(result.failedChecks, isNotEmpty);
+    });
+  });
 }
