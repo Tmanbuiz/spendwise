@@ -1,0 +1,33 @@
+name: Quality checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve app dependencies
+        working-directory: app
+        run: flutter pub get
+      - name: Flutter analyze
+        working-directory: app
+        run: flutter analyze
+      - name: Flutter tests
+        working-directory: app
+        run: flutter test
+      - name: Resolve parser dependencies
+        working-directory: packages/spendwise_parser
+        run: dart pub get
+      - name: Parser tests
+        working-directory: packages/spendwise_parser
+        run: dart test
