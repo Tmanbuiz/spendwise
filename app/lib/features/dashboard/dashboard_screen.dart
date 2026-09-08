@@ -19,15 +19,14 @@ class DashboardScreen extends ConsumerWidget {
     final transactions = ref.watch(transactionsProvider);
     final allowance = insights.dailyAllowance(overall);
     final permission = ref.watch(notificationPermissionProvider);
-    final supportsCapture = ref
-        .watch(notificationAccessProvider)
-        .isSupportedPlatform;
+    final supportsCapture = ref.watch(notificationAccessProvider).isSupportedPlatform;
     final recent =
         (transactions.value ?? [])
             .where((t) => insights.window.contains(t.occurredAt))
             .toList()
           ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
     final categories = insights.current.byCategory;
+
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -50,6 +49,11 @@ class DashboardScreen extends ConsumerWidget {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Ask SpendWise',
+            onPressed: () => context.push(Routes.assistant),
+            icon: const Icon(Icons.auto_awesome_outlined),
+          ),
           IconButton(
             tooltip: 'Settings',
             onPressed: () => context.go(Routes.settings),
@@ -79,6 +83,37 @@ class DashboardScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 18),
             const PeriodSelector(),
+            const SizedBox(height: 12),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: _QuickAction(
+                    icon: Icons.auto_awesome_outlined,
+                    label: 'Ask',
+                    detail: 'Your data',
+                    onTap: () => context.push(Routes.assistant),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _QuickAction(
+                    icon: Icons.folder_copy_outlined,
+                    label: 'Vault',
+                    detail: 'Documents',
+                    onTap: () => context.push(Routes.vault),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _QuickAction(
+                    icon: Icons.upload_file_outlined,
+                    label: 'Import',
+                    detail: 'Statement',
+                    onTap: () => context.push(Routes.importStatement),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             if (supportsCapture && permission.value == false) ...[
               InsightNote(
@@ -172,9 +207,7 @@ class DashboardScreen extends ConsumerWidget {
                                     children: [
                                       Icon(
                                         AppTheme.categoryIcon(entry.category),
-                                        color: AppTheme.categoryColor(
-                                          entry.category,
-                                        ),
+                                        color: AppTheme.categoryColor(entry.category),
                                         size: 20,
                                       ),
                                       const SizedBox(width: 10),
@@ -199,12 +232,9 @@ class DashboardScreen extends ConsumerWidget {
                                     child: LinearProgressIndicator(
                                       value: entry.shareOfTotal,
                                       minHeight: 5,
-                                      color: AppTheme.categoryColor(
-                                        entry.category,
-                                      ),
-                                      backgroundColor: theme
-                                          .colorScheme
-                                          .surfaceContainerHighest,
+                                      color: AppTheme.categoryColor(entry.category),
+                                      backgroundColor:
+                                          theme.colorScheme.surfaceContainerHighest,
                                     ),
                                   ),
                                 ],
@@ -222,10 +252,7 @@ class DashboardScreen extends ConsumerWidget {
                 ),
               ),
               SectionCard(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 child: recent.isEmpty
                     ? const EmptyState(
                         icon: Icons.receipt_long_outlined,
@@ -237,14 +264,63 @@ class DashboardScreen extends ConsumerWidget {
                           for (final t in recent.take(5))
                             TransactionTile(
                               transaction: t,
-                              onTap: () =>
-                                  context.push('/transaction', extra: t),
+                              onTap: () => context.push('/transaction', extra: t),
                             ),
                         ],
                       ),
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.detail,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String detail;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.cardTheme.color,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.55),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          child: Column(
+            children: <Widget>[
+              Icon(icon, color: theme.colorScheme.primary, size: 22),
+              const SizedBox(height: 6),
+              Text(label, style: theme.textTheme.labelLarge),
+              Text(
+                detail,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
