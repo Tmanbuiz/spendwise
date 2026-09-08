@@ -19,6 +19,7 @@ dependencies:
   flutter_dotenv: ^6.0.1
   fl_chart: ^1.2.0
   shared_preferences: ^2.5.5
+  path_provider: ^2.1.5
 
   # The parsing, categorisation and duplicate-detection engine. Pure Dart with
   # no Flutter dependency, so it is unit-tested without a device and can back
@@ -37,6 +38,3 @@ flutter:
   uses-material-design: true
   assets:
     - .env
-
-
-
