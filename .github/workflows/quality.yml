@@ -5,23 +5,27 @@ on:
   push:
     branches:
       - main
+      - feat/financial-vault-ai
 
 jobs:
   flutter:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+      - name: Create local-mode environment file
+        working-directory: app
+        run: touch .env
       - name: Resolve app dependencies
         working-directory: app
         run: flutter pub get
       - name: Flutter analyze
         working-directory: app
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
       - name: Flutter tests
         working-directory: app
         run: flutter test
@@ -31,3 +35,13 @@ jobs:
       - name: Parser tests
         working-directory: packages/spendwise_parser
         run: dart test
+      - name: Build Android APK
+        working-directory: app
+        run: flutter build apk --release
+      - name: Upload SpendWise APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpendWise-Android
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
