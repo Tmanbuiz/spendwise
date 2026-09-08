@@ -45,3 +45,17 @@ jobs:
           path: app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Build side-by-side beta APK
+        working-directory: app
+        run: |
+          sed -i 's/applicationId = "com.spendwise.spendwise"/applicationId = "com.spendwise.spendwise.beta"/' android/app/build.gradle.kts
+          sed -i 's/android:label="SpendWise"/android:label="SpendWise Beta"/' android/app/src/main/AndroidManifest.xml
+          flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/SpendWise-Beta.apk
+      - name: Upload SpendWise Beta APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpendWise-Beta-Android
+          path: app/build/app/outputs/flutter-apk/SpendWise-Beta.apk
+          if-no-files-found: error
+          retention-days: 14
