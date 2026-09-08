@@ -13,6 +13,7 @@ import '../../services/financial_vault_service.dart';
 import '../../state/financial_providers.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
+import '../../widgets/insight_widgets.dart';
 
 class FinancialVaultScreen extends ConsumerStatefulWidget {
   const FinancialVaultScreen({super.key});
@@ -346,8 +347,8 @@ class _DocumentCard extends StatelessWidget {
                 Text(
                   <String>[
                     document.documentType.displayName,
-                    if (document.institution != null) document.institution!,
-                    if (period != null) period,
+                    ?document.institution,
+                    ?period,
                   ].join(' · '),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
