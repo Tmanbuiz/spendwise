@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/account.dart';
 import '../models/app_transaction.dart';
 import '../models/budget.dart';
+import '../models/financial_document.dart';
+import '../models/financial_rule.dart';
 import '../models/user_preferences.dart';
 import 'repositories.dart';
 
@@ -19,6 +21,8 @@ class SupabaseData {
         accounts: SupabaseAccountRepository(client),
         budgets: SupabaseBudgetRepository(client),
         rules: SupabaseRuleRepository(client),
+        documents: SupabaseFinancialDocumentRepository(client),
+        financialRules: SupabaseFinancialRuleRepository(client),
         preferences: SupabasePreferencesRepository(client),
         isRemote: true,
       );
@@ -118,6 +122,52 @@ class SupabaseRuleRepository implements MerchantRuleRepository {
   @override
   Future<void> delete(String id) async {
     await _client.from('merchant_rules').delete().eq('id', id);
+  }
+}
+
+class SupabaseFinancialDocumentRepository
+    implements FinancialDocumentRepository {
+  SupabaseFinancialDocumentRepository(this._client);
+  final SupabaseClient _client;
+
+  @override
+  Future<List<FinancialDocument>> list() async {
+    final response = await _client
+        .from('financial_documents')
+        .select()
+        .order('added_at', ascending: false);
+    return _rows(response).map(FinancialDocument.fromJson).toList();
+  }
+
+  @override
+  Future<void> upsert(FinancialDocument document) async {
+    await _client.from('financial_documents').upsert(document.toJson());
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    await _client.from('financial_documents').delete().eq('id', id);
+  }
+}
+
+class SupabaseFinancialRuleRepository implements FinancialRuleRepository {
+  SupabaseFinancialRuleRepository(this._client);
+  final SupabaseClient _client;
+
+  @override
+  Future<List<FinancialRule>> list() async {
+    final response = await _client.from('financial_rules').select().order('pattern');
+    return _rows(response).map(FinancialRule.fromJson).toList();
+  }
+
+  @override
+  Future<void> upsert(FinancialRule rule) async {
+    await _client.from('financial_rules').upsert(rule.toJson());
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    await _client.from('financial_rules').delete().eq('id', id);
   }
 }
 
