@@ -396,4 +396,110 @@ LOBLAWS
       expect(result.problems, isNotEmpty);
     });
   });
+
+  group('a balance carried across a page break', () {
+    // Every page of a multi-page account statement restates the running
+    // balance before the first transaction on that page. The label is
+    // furniture, but the number underneath it is not: left in the buffer it
+    // pairs with the next transaction's amount, and that transaction is then
+    // recorded as the carried balance. This is the shape that turned a $16.95
+    // service charge into $1,801.78 and made whole runs of same-day rows
+    // report the balance of the row above them.
+    const pageBreak = '''
+Transaction details
+Aug 3
+E-TRANSFER        106056182358
+Tolulope
+100.00
+-102.38
+(continued on next page)
+Page 1 of 6
+Transaction details (continued)
+Date
+Description
+Withdrawals (\$)
+Deposits (\$)
+Balance (\$)
+Aug 3
+Balance forward
+\$79.62
+PREAUTHORIZED DEBIT
+Wealthsimple Investments Inc.
+40.00
+39.62
+Aug 4
+CHEQUE
+25.00
+14.62
+''';
+
+    test('the carried balance is not recorded as a transaction', () {
+      final result = TextStatementReader.read(pageBreak, year: 2026);
+
+      expect(
+        result.rows.map((r) => r.amount.cents),
+        isNot(contains(7962)),
+        reason: 'the carried balance must never surface as an amount',
+      );
+      expect(
+        result.rows.map((r) => r.description),
+        everyElement(isNot(contains('Balance forward'))),
+      );
+    });
+
+    test('transactions after the break keep their own amounts', () {
+      final result = TextStatementReader.read(pageBreak, year: 2026);
+
+      final wealthsimple = result.rows.firstWhere(
+        (r) => r.description.contains('Wealthsimple'),
+      );
+      expect(wealthsimple.amount.cents, 4000);
+
+      final cheque = result.rows.firstWhere(
+        (r) => r.description.contains('CHEQUE'),
+      );
+      expect(cheque.amount.cents, 2500);
+    });
+
+    test('a fee after a page break keeps its real value', () {
+      // The exact sequence from the August statement, where the reader
+      // published \$1.06 for a \$16.95 charge.
+      const text = '''
+Transaction details
+Aug 31
+Balance forward
+\$1.06
+SERVICE CHARGE
+CAPPED MONTHLY FEE\$16.95
+RECORD-KEEPING  N/A
+16.95
+-15.89
+OVERDRAFT FEE
+25.00
+-40.89
+OVERDRAFT INTEREST CHARGE
+0.72
+-41.61
+Closing balance
+-\$41.61
+''';
+
+      final result = TextStatementReader.read(text, year: 2026);
+      final amounts = <String, int>{
+        for (final row in result.rows) row.description: row.amount.cents,
+      };
+
+      expect(
+        amounts.entries
+            .firstWhere((e) => e.key.startsWith('SERVICE CHARGE'))
+            .value,
+        1695,
+      );
+      expect(amounts['OVERDRAFT FEE'], 2500);
+      expect(amounts['OVERDRAFT INTEREST CHARGE'], 72);
+
+      // The closing balance is a total, not money moving.
+      expect(result.rows.map((r) => r.amount.cents), isNot(contains(4161)));
+    });
+  });
 }

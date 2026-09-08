@@ -1,3 +1,5 @@
+import '../../services/budget_alerts.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -31,6 +33,13 @@ class _HomeShellState extends ConsumerState<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    final alerts = ref.watch(activeBudgetAlertsProvider);
+    final enabled = ref.watch(alertsEnabledProvider).value ?? false;
+    if (enabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.read(alertDispatcherProvider).send(alerts);
+      });
+    }
     return Scaffold(
       body: widget.shell,
       bottomNavigationBar: NavigationBar(
@@ -56,6 +65,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             icon: Icon(Icons.savings_outlined),
             selectedIcon: Icon(Icons.savings_rounded),
             label: 'Budgets',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart_rounded),
+            label: 'Insights',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),

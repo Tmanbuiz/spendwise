@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spendwise_parser/spendwise_parser.dart';
@@ -11,6 +12,7 @@ import '../data/models/bank.dart';
 import '../data/models/budget.dart';
 import '../data/models/user_preferences.dart';
 import '../data/month_summary.dart';
+import '../data/spending_insights.dart';
 import '../data/repositories/local_repositories.dart';
 import '../data/repositories/repositories.dart';
 import '../data/repositories/supabase_repositories.dart';
@@ -46,8 +48,9 @@ final dataLayerProvider = Provider<DataLayer>((ref) {
 
 /// True when a Supabase project is configured. Drives the honest "stored on
 /// this device only" banner in Settings.
-final isRemoteProvider =
-    Provider<bool>((ref) => ref.watch(dataLayerProvider).isRemote);
+final isRemoteProvider = Provider<bool>(
+  (ref) => ref.watch(dataLayerProvider).isRemote,
+);
 
 // ---------------------------------------------------------------------- auth
 
@@ -70,8 +73,10 @@ class AuthActions {
   const AuthActions();
 
   Future<void> signIn({required String email, required String password}) =>
-      Supabase.instance.client.auth
-          .signInWithPassword(email: email, password: password);
+      Supabase.instance.client.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
 
   Future<void> signUp({required String email, required String password}) =>
       Supabase.instance.client.auth.signUp(email: email, password: password);
@@ -88,8 +93,8 @@ final authActionsProvider = Provider<AuthActions>((ref) => const AuthActions());
 
 final preferencesProvider =
     AsyncNotifierProvider<PreferencesNotifier, UserPreferences>(
-  PreferencesNotifier.new,
-);
+      PreferencesNotifier.new,
+    );
 
 class PreferencesNotifier extends AsyncNotifier<UserPreferences> {
   @override
@@ -131,8 +136,8 @@ class PreferencesNotifier extends AsyncNotifier<UserPreferences> {
 
 final transactionsProvider =
     AsyncNotifierProvider<TransactionsNotifier, List<AppTransaction>>(
-  TransactionsNotifier.new,
-);
+      TransactionsNotifier.new,
+    );
 
 class TransactionsNotifier extends AsyncNotifier<List<AppTransaction>> {
   @override
@@ -161,18 +166,20 @@ class TransactionsNotifier extends AsyncNotifier<List<AppTransaction>> {
   Future<void> setCategory(
     AppTransaction transaction,
     SpendCategory category,
-  ) =>
-      upsert(transaction.copyWith(
-        category: category,
-        categoryWasSetByUser: true,
-        needsReview: false,
-      ));
+  ) => upsert(
+    transaction.copyWith(
+      category: category,
+      categoryWasSetByUser: true,
+      needsReview: false,
+    ),
+  );
 }
 
 // ------------------------------------------------------------------- budgets
 
-final budgetsProvider =
-    AsyncNotifierProvider<BudgetsNotifier, List<Budget>>(BudgetsNotifier.new);
+final budgetsProvider = AsyncNotifierProvider<BudgetsNotifier, List<Budget>>(
+  BudgetsNotifier.new,
+);
 
 class BudgetsNotifier extends AsyncNotifier<List<Budget>> {
   @override
@@ -195,8 +202,7 @@ class BudgetsNotifier extends AsyncNotifier<List<Budget>> {
 
 // ------------------------------------------------------------------ accounts
 
-final accountsProvider =
-    AsyncNotifierProvider<AccountsNotifier, List<Account>>(
+final accountsProvider = AsyncNotifierProvider<AccountsNotifier, List<Account>>(
   AccountsNotifier.new,
 );
 
@@ -221,8 +227,7 @@ class AccountsNotifier extends AsyncNotifier<List<Account>> {
 
 // ------------------------------------------------------------ merchant rules
 
-final rulesProvider =
-    AsyncNotifierProvider<RulesNotifier, List<MerchantRule>>(
+final rulesProvider = AsyncNotifierProvider<RulesNotifier, List<MerchantRule>>(
   RulesNotifier.new,
 );
 
@@ -254,10 +259,37 @@ final categorizerProvider = Provider<Categorizer>((ref) {
 
 // ------------------------------------------------------------------ reporting
 
+final reportingNowProvider = Provider<DateTime>((ref) {
+  ref.watch(transactionsProvider);
+  final timer = Timer.periodic(
+    const Duration(minutes: 1),
+    (_) => ref.invalidateSelf(),
+  );
+  ref.onDispose(timer.cancel);
+  return DateTime.now();
+});
+
+final spendingInsightsProvider = Provider<SpendingInsights>((ref) {
+  final preferences =
+      ref.watch(preferencesProvider).value ?? const UserPreferences();
+  final now = ref.watch(reportingNowProvider);
+  return SpendingInsights(
+    window: reportingWindow(
+      now,
+      ref.watch(monthOffsetProvider),
+      preferences.monthStartDay,
+    ),
+    now: now,
+    transactions: ref.watch(transactionsProvider).value ?? const [],
+    currency: preferences.currency,
+  );
+});
+
 /// The month currently being viewed, as an offset from this month
 /// (0 = current, -1 = last month).
-final monthOffsetProvider =
-    NotifierProvider<MonthOffsetNotifier, int>(MonthOffsetNotifier.new);
+final monthOffsetProvider = NotifierProvider<MonthOffsetNotifier, int>(
+  MonthOffsetNotifier.new,
+);
 
 class MonthOffsetNotifier extends Notifier<int> {
   @override
@@ -274,17 +306,15 @@ class MonthOffsetNotifier extends Notifier<int> {
 
 final monthComparisonProvider = Provider<MonthComparison>((ref) {
   final transactions =
-      ref.watch(transactionsProvider).value ?? const <AppTransaction>[];
+      (ref.watch(transactionsProvider).value ?? const <AppTransaction>[])
+          .where((t) => !t.occurredAt.isAfter(ref.watch(reportingNowProvider)))
+          .toList();
   final preferences =
       ref.watch(preferencesProvider).value ?? const UserPreferences();
   final offset = ref.watch(monthOffsetProvider);
 
-  final now = DateTime.now();
-  final anchor = DateTime(now.year, now.month + offset, now.day);
-  final window = MonthWindow.forDate(
-    anchor,
-    monthStartDay: preferences.monthStartDay,
-  );
+  final now = ref.watch(reportingNowProvider);
+  final window = reportingWindow(now, offset, preferences.monthStartDay);
 
   return MonthComparison(
     current: MonthSummary.build(
@@ -319,7 +349,9 @@ final oldestMonthOffsetProvider = Provider<int>((ref) {
 
   var oldest = transactions.first.occurredAt;
   for (final transaction in transactions) {
-    if (transaction.occurredAt.isBefore(oldest)) oldest = transaction.occurredAt;
+    if (transaction.occurredAt.isBefore(oldest)) {
+      oldest = transaction.occurredAt;
+    }
   }
 
   final oldestStart = MonthWindow.forDate(
@@ -331,7 +363,8 @@ final oldestMonthOffsetProvider = Provider<int>((ref) {
     monthStartDay: preferences.monthStartDay,
   ).start;
 
-  final months = (oldestStart.year - currentStart.year) * 12 +
+  final months =
+      (oldestStart.year - currentStart.year) * 12 +
       (oldestStart.month - currentStart.month);
   return months.clamp(-240, 0);
 });
@@ -339,7 +372,10 @@ final oldestMonthOffsetProvider = Provider<int>((ref) {
 final budgetProgressProvider = Provider<List<BudgetProgress>>((ref) {
   final budgets = ref.watch(budgetsProvider).value ?? const <Budget>[];
   final summary = ref.watch(monthComparisonProvider).current;
-  return buildBudgetProgress(budgets: budgets, summary: summary);
+  return buildBudgetProgress(
+    budgets: budgets.where((b) => b.currency == summary.currency).toList(),
+    summary: summary,
+  );
 });
 
 /// The overall monthly budget, if the user set one.
@@ -353,8 +389,9 @@ final overallBudgetProvider = Provider<BudgetProgress?>((ref) {
 
 // ------------------------------------------------------------------- capture
 
-final notificationAccessProvider =
-    Provider<NotificationAccess>((ref) => NotificationAccess());
+final notificationAccessProvider = Provider<NotificationAccess>(
+  (ref) => NotificationAccess(),
+);
 
 /// Live permission state, re-read from Android rather than cached.
 final notificationPermissionProvider = FutureProvider<bool>(
@@ -381,8 +418,10 @@ final installedBankAppsProvider = FutureProvider<Map<String, String>>((ref) {
 });
 
 /// Whether a specific bank's app was found on this device.
-final bankDetectionProvider =
-    Provider.family<BankDetection, String>((ref, bankId) {
+final bankDetectionProvider = Provider.family<BankDetection, String>((
+  ref,
+  bankId,
+) {
   final bank = Banks.byId(bankId);
   if (bank == null || bank.packageNames.isEmpty) {
     return BankDetection.notApplicable;
@@ -461,9 +500,6 @@ final ingestServiceProvider = Provider<IngestService>((ref) {
 /// The Android package names to watch, derived from the banks the user picked.
 final watchedPackagesProvider = Provider<Set<String>>((ref) {
   final selected =
-      ref.watch(preferencesProvider).value?.selectedBankIds ??
-          const <String>{};
-  return <String>{
-    for (final id in selected) ...?Banks.byId(id)?.packageNames,
-  };
+      ref.watch(preferencesProvider).value?.selectedBankIds ?? const <String>{};
+  return <String>{for (final id in selected) ...?Banks.byId(id)?.packageNames};
 });

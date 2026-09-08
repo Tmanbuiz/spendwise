@@ -13,8 +13,7 @@ class MonthWindow {
   /// Exclusive end.
   final DateTime end;
 
-  bool contains(DateTime when) =>
-      !when.isBefore(start) && when.isBefore(end);
+  bool contains(DateTime when) => !when.isBefore(start) && when.isBefore(end);
 
   /// The window for the period containing [now], honouring a custom
   /// [monthStartDay] for users whose pay cycle is not the 1st.
@@ -75,6 +74,7 @@ class MonthSummary {
     for (final transaction in transactions) {
       if (!window.contains(transaction.occurredAt)) continue;
       if (!transaction.countsAsSpending) continue;
+      if (transaction.currency != currency) continue;
       total += transaction.amountCents;
       count++;
       totals.update(
@@ -84,14 +84,17 @@ class MonthSummary {
       );
     }
 
-    final byCategory = totals.entries
-        .map((e) => CategoryTotal(
-              category: e.key,
-              amountCents: e.value,
-              shareOfTotal: total == 0 ? 0 : e.value / total,
-            ))
-        .toList()
-      ..sort((a, b) => b.amountCents.compareTo(a.amountCents));
+    final byCategory =
+        totals.entries
+            .map(
+              (e) => CategoryTotal(
+                category: e.key,
+                amountCents: e.value,
+                shareOfTotal: total == 0 ? 0 : e.value / total,
+              ),
+            )
+            .toList()
+          ..sort((a, b) => b.amountCents.compareTo(a.amountCents));
 
     return MonthSummary(
       window: window,
@@ -121,16 +124,12 @@ class CategoryTotal {
 
 /// This month measured against last month.
 class MonthComparison {
-  const MonthComparison({
-    required this.current,
-    required this.previous,
-  });
+  const MonthComparison({required this.current, required this.previous});
 
   final MonthSummary current;
   final MonthSummary previous;
 
-  int get differenceCents =>
-      current.totalSpentCents - previous.totalSpentCents;
+  int get differenceCents => current.totalSpentCents - previous.totalSpentCents;
 
   bool get spentMore => differenceCents > 0;
 

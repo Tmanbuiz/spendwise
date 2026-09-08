@@ -181,6 +181,18 @@ abstract final class TextStatementReader {
 
   /// Column headings and page-break markers, which repeat on every page of a
   /// multi-page statement and are not part of any description.
+  /// Labels whose following number restates the running balance instead of
+  /// recording money moving.
+  ///
+  /// Kept separate from [_repeatedFurniture] because dropping the label is not
+  /// enough: the number underneath it has to be consumed too, or it pairs with
+  /// the next transaction and is published as that transaction's amount.
+  static final RegExp _balanceCarry = RegExp(
+    r'^(?:balance\s+forward|opening\s+balance|closing\s+balance|'
+    r'balance\s+brought\s+forward)\b',
+    caseSensitive: false,
+  );
+
   static final RegExp _repeatedFurniture = RegExp(
     r'^(?:date|description|withdrawals?(?:\s*\(\$\))?|'
     r'deposits?(?:\s*\(\$\))?|balance(?:\s*\(\$\))?|'
@@ -227,6 +239,11 @@ abstract final class TextStatementReader {
 
     DateTime? currentDate;
     int? previousBalance;
+
+    /// Set when a balance-carry label has been seen and the number that
+    /// follows it belongs to the running balance rather than to a
+    /// transaction.
+    var expectingCarriedBalance = false;
     var descriptions = <String>[];
     var numbers = <int>[];
     var recordLine = 0;
@@ -300,9 +317,39 @@ abstract final class TextStatementReader {
 
       if (_bareMoney.hasMatch(line)) {
         final cents = _parseCents(line);
+
+        // A carried balance is a running total, not money that moved. Taking
+        // it as an amount would both invent a transaction and, worse, leave
+        // the number in the buffer for the next row to pair against — so
+        // every row after it reports the row before it. See [_balanceCarry].
+        if (expectingCarriedBalance) {
+          expectingCarriedBalance = false;
+          if (cents != null) previousBalance = cents;
+          continue;
+        }
+
         if (cents != null) numbers.add(cents);
         // Amount then balance completes a row.
         if (numbers.length >= 2) flush();
+        continue;
+      }
+
+      // A statement page break restates the running balance:
+      //
+      //     Balance forward
+      //     $79.62
+      //     PREAUTHORIZED DEBIT
+      //     100.00
+      //
+      // The label is dropped as furniture below, but its number is not, and a
+      // lone number never completes a record — so it sat in the buffer and
+      // paired with the next transaction's amount, publishing $79.62 as that
+      // transaction's value. The shift then persisted until the next date
+      // line happened to flush it, which is why whole same-day runs came out
+      // as the balances of the rows above them.
+      if (_balanceCarry.hasMatch(line)) {
+        flush();
+        expectingCarriedBalance = true;
         continue;
       }
 

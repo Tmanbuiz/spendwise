@@ -2,7 +2,7 @@ name: spendwise
 description: "Automatic monthly spending tracking from bank and card notifications."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.4.0+6
 
 environment:
   sdk: ^3.13.2
@@ -37,3 +37,6 @@ flutter:
   uses-material-design: true
   assets:
     - .env
+
+
+

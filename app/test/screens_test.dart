@@ -57,7 +57,9 @@ class _FakeBudgets implements BudgetRepository {
   @override
   Future<List<Budget>> list() async => rows;
   @override
-  Future<void> upsert(Budget budget) async => rows = <Budget>[...rows, budget];
+  Future<void> upsert(Budget budget) async => rows = <Budget>[
+    ...rows.where((row) => row.id != budget.id), budget,
+  ];
   @override
   Future<void> delete(String id) async =>
       rows = rows.where((r) => r.id != id).toList();
@@ -116,6 +118,8 @@ AppTransaction sample({
 /// or device storage.
 Widget harness(
   Widget child, {
+  DateTime? now,
+  bool fullApp = false,
   List<AppTransaction> transactions = const <AppTransaction>[],
   List<Budget> budgets = const <Budget>[],
   List<MerchantRule> rules = const <MerchantRule>[],
@@ -126,6 +130,7 @@ Widget harness(
 }) {
   return ProviderScope(
     overrides: [
+      if (now != null) reportingNowProvider.overrideWithValue(now),
       dataLayerProvider.overrideWith(
         (ref) => DataLayer(
           transactions: _FakeTransactions(transactions),
@@ -137,10 +142,7 @@ Widget harness(
         ),
       ),
     ],
-    child: MaterialApp(
-      theme: AppTheme.light(),
-      home: child,
-    ),
+    child: fullApp ? child : MaterialApp(theme: AppTheme.light(), home: child),
   );
 }
 
@@ -163,8 +165,12 @@ void main() {
   });
 
   final transactions = <AppTransaction>[
-    sample(id: 't1', cents: 4567, merchant: 'TIM HORTONS',
-        category: SpendCategory.dining),
+    sample(
+      id: 't1',
+      cents: 4567,
+      merchant: 'TIM HORTONS',
+      category: SpendCategory.dining,
+    ),
     sample(id: 't2', cents: 12300, merchant: 'LOBLAWS'),
     sample(
       id: 't3',
@@ -176,10 +182,9 @@ void main() {
 
   group('dashboard', () {
     testWidgets('renders the month total from purchases only', (tester) async {
-      await tester.pumpWidget(harness(
-        const DashboardScreen(),
-        transactions: transactions,
-      ));
+      await tester.pumpWidget(
+        harness(const DashboardScreen(), transactions: transactions),
+      );
       await tester.pumpAndSettle();
 
       // 45.67 + 123.00 = 168.67. The 500.00 card payment must not be counted.
@@ -187,12 +192,12 @@ void main() {
       expect(find.textContaining(r'$668.67'), findsNothing);
     });
 
-    testWidgets('shows recent activity and the category breakdown',
-        (tester) async {
-      await tester.pumpWidget(harness(
-        const DashboardScreen(),
-        transactions: transactions,
-      ));
+    testWidgets('shows recent activity and the category breakdown', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        harness(const DashboardScreen(), transactions: transactions),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('TIM HORTONS'), findsOneWidget);
@@ -202,21 +207,22 @@ void main() {
     });
 
     testWidgets('offers to set a budget when none exists', (tester) async {
-      await tester.pumpWidget(harness(
-        const DashboardScreen(),
-        transactions: transactions,
-      ));
+      await tester.pumpWidget(
+        harness(const DashboardScreen(), transactions: transactions),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Set a monthly budget'), findsOneWidget);
     });
 
     testWidgets('shows budget progress when a budget exists', (tester) async {
-      await tester.pumpWidget(harness(
-        const DashboardScreen(),
-        transactions: transactions,
-        budgets: <Budget>[const Budget(id: 'b1', amountCents: 100000)],
-      ));
+      await tester.pumpWidget(
+        harness(
+          const DashboardScreen(),
+          transactions: transactions,
+          budgets: <Budget>[const Budget(id: 'b1', amountCents: 100000)],
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Monthly budget'), findsOneWidget);
@@ -234,22 +240,21 @@ void main() {
 
   group('transactions', () {
     testWidgets('lists transactions grouped by day', (tester) async {
-      await tester.pumpWidget(harness(
-        const TransactionsScreen(),
-        transactions: transactions,
-      ));
+      await tester.pumpWidget(
+        harness(const TransactionsScreen(), transactions: transactions),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Today'), findsOneWidget);
       expect(find.text('TIM HORTONS'), findsOneWidget);
     });
 
-    testWidgets('the "Not counted" filter isolates non-spending rows',
-        (tester) async {
-      await tester.pumpWidget(harness(
-        const TransactionsScreen(),
-        transactions: transactions,
-      ));
+    testWidgets('the "Not counted" filter isolates non-spending rows', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        harness(const TransactionsScreen(), transactions: transactions),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Not counted'));
@@ -260,10 +265,9 @@ void main() {
     });
 
     testWidgets('search narrows the list', (tester) async {
-      await tester.pumpWidget(harness(
-        const TransactionsScreen(),
-        transactions: transactions,
-      ));
+      await tester.pumpWidget(
+        harness(const TransactionsScreen(), transactions: transactions),
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).first, 'loblaws');
@@ -282,31 +286,64 @@ void main() {
 
     final acrossMonths = <AppTransaction>[
       ...transactions,
-      sample(
-        id: 'old1',
-        cents: 999,
-        merchant: 'ESSO',
-        when: lastMonth,
-      ),
+      sample(id: 'old1', cents: 999, merchant: 'ESSO', when: lastMonth),
     ];
 
+    test('calendar range includes both boundary days and excludes others', () {
+      final rows = transactionsInDateRange(
+        <AppTransaction>[
+          sample(
+            id: 'before',
+            cents: 100,
+            merchant: 'BEFORE',
+            when: DateTime(2026, 9, 1, 23, 59),
+          ),
+          sample(
+            id: 'start',
+            cents: 200,
+            merchant: 'START',
+            when: DateTime(2026, 9, 2),
+          ),
+          sample(
+            id: 'end',
+            cents: 300,
+            merchant: 'END',
+            when: DateTime(2026, 9, 4, 23, 59),
+          ),
+          sample(
+            id: 'after',
+            cents: 400,
+            merchant: 'AFTER',
+            when: DateTime(2026, 9, 5),
+          ),
+        ],
+        DateTimeRange(
+          start: DateTime(2026, 9, 2),
+          end: DateTime(2026, 9, 4),
+        ),
+      );
+
+      expect(rows.map((row) => row.id), <String>['start', 'end']);
+    });
+
     testWidgets('shows only the month being viewed', (tester) async {
-      await tester.pumpWidget(harness(
-        const TransactionsScreen(),
-        transactions: acrossMonths,
-      ));
+      await tester.pumpWidget(
+        harness(const TransactionsScreen(), transactions: acrossMonths),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('TIM HORTONS'), findsOneWidget);
-      expect(find.text('ESSO'), findsNothing,
-          reason: 'last month must not leak into this month');
+      expect(
+        find.text('ESSO'),
+        findsNothing,
+        reason: 'last month must not leak into this month',
+      );
     });
 
     testWidgets('stepping back shows the previous month', (tester) async {
-      await tester.pumpWidget(harness(
-        const TransactionsScreen(),
-        transactions: acrossMonths,
-      ));
+      await tester.pumpWidget(
+        harness(const TransactionsScreen(), transactions: acrossMonths),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.byTooltip('Previous month'));
@@ -317,10 +354,9 @@ void main() {
     });
 
     testWidgets('all time shows every month at once', (tester) async {
-      await tester.pumpWidget(harness(
-        const TransactionsScreen(),
-        transactions: acrossMonths,
-      ));
+      await tester.pumpWidget(
+        harness(const TransactionsScreen(), transactions: acrossMonths),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.byTooltip('Show all time'));
@@ -331,10 +367,9 @@ void main() {
     });
 
     testWidgets('the month total counts purchases only', (tester) async {
-      await tester.pumpWidget(harness(
-        const TransactionsScreen(),
-        transactions: acrossMonths,
-      ));
+      await tester.pumpWidget(
+        harness(const TransactionsScreen(), transactions: acrossMonths),
+      );
       await tester.pumpAndSettle();
 
       // 45.67 + 123.00. The 500.00 card payment does not count, and last
@@ -345,12 +380,12 @@ void main() {
       expect(find.textContaining(r'$178.66'), findsNothing);
     });
 
-    testWidgets('cannot page back past the start of the history',
-        (tester) async {
-      await tester.pumpWidget(harness(
-        const TransactionsScreen(),
-        transactions: acrossMonths,
-      ));
+    testWidgets('cannot page back past the start of the history', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        harness(const TransactionsScreen(), transactions: acrossMonths),
+      );
       await tester.pumpAndSettle();
 
       // One step back reaches the oldest month, so the control must then be
@@ -367,15 +402,18 @@ void main() {
       expect(previous.onPressed, isNull);
     });
 
-    testWidgets('says which month is empty rather than looking broken',
-        (tester) async {
-      await tester.pumpWidget(harness(
-        const TransactionsScreen(),
-        // Only last month has anything, so this month is empty.
-        transactions: <AppTransaction>[
-          sample(id: 'old1', cents: 999, merchant: 'ESSO', when: lastMonth),
-        ],
-      ));
+    testWidgets('says which month is empty rather than looking broken', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        harness(
+          const TransactionsScreen(),
+          // Only last month has anything, so this month is empty.
+          transactions: <AppTransaction>[
+            sample(id: 'old1', cents: 999, merchant: 'ESSO', when: lastMonth),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Nothing in'), findsOneWidget);
@@ -397,11 +435,12 @@ void main() {
       expect(find.text('Purchase'), findsOneWidget);
     });
 
-    testWidgets('pre-fills when editing an existing transaction',
-        (tester) async {
-      await tester.pumpWidget(harness(
-        TransactionDetailScreen(transaction: transactions.first),
-      ));
+    testWidgets('pre-fills when editing an existing transaction', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        harness(TransactionDetailScreen(transaction: transactions.first)),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('45.67'), findsOneWidget);
@@ -418,8 +457,9 @@ void main() {
       expect(find.text('Enter an amount greater than zero'), findsOneWidget);
     });
 
-    testWidgets('says when the chosen type will not count as spending',
-        (tester) async {
+    testWidgets('says when the chosen type will not count as spending', (
+      tester,
+    ) async {
       await tester.pumpWidget(harness(const TransactionDetailScreen()));
       await tester.pumpAndSettle();
 
@@ -442,19 +482,22 @@ void main() {
       expect(find.text('Set a budget'), findsOneWidget);
     });
 
-    testWidgets('flags an over-budget category in the negative colour',
-        (tester) async {
-      await tester.pumpWidget(harness(
-        const BudgetsScreen(),
-        transactions: transactions,
-        budgets: <Budget>[
-          const Budget(
-            id: 'b1',
-            amountCents: 1000,
-            category: SpendCategory.dining,
-          ),
-        ],
-      ));
+    testWidgets('flags an over-budget category in the negative colour', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        harness(
+          const BudgetsScreen(),
+          transactions: transactions,
+          budgets: <Budget>[
+            const Budget(
+              id: 'b1',
+              amountCents: 1000,
+              category: SpendCategory.dining,
+            ),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.textContaining('over budget'), findsOneWidget);
@@ -476,17 +519,19 @@ void main() {
     });
 
     testWidgets('shows user rules', (tester) async {
-      await tester.pumpWidget(harness(
-        const CategoriesScreen(),
-        rules: <MerchantRule>[
-          const MerchantRule(
-            id: 'r1',
-            pattern: 'MY CORNER STORE',
-            category: SpendCategory.groceries,
-            source: RuleSource.user,
-          ),
-        ],
-      ));
+      await tester.pumpWidget(
+        harness(
+          const CategoriesScreen(),
+          rules: <MerchantRule>[
+            const MerchantRule(
+              id: 'r1',
+              pattern: 'MY CORNER STORE',
+              category: SpendCategory.groceries,
+              source: RuleSource.user,
+            ),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('MY CORNER STORE'), findsOneWidget);
@@ -495,10 +540,9 @@ void main() {
 
   group('accounts', () {
     testWidgets('discovers cards from transaction history', (tester) async {
-      await tester.pumpWidget(harness(
-        const AccountsScreen(),
-        transactions: transactions,
-      ));
+      await tester.pumpWidget(
+        harness(const AccountsScreen(), transactions: transactions),
+      );
       await tester.pumpAndSettle();
 
       expect(find.textContaining('••1234'), findsWidgets);
@@ -517,8 +561,9 @@ void main() {
   });
 
   group('bank selection', () {
-    testWidgets('lists every bank and marks CIBC as fully supported',
-        (tester) async {
+    testWidgets('lists every bank and marks CIBC as fully supported', (
+      tester,
+    ) async {
       await tester.pumpWidget(harness(const BankSelectionScreen()));
       await tester.pumpAndSettle();
 
@@ -539,10 +584,12 @@ void main() {
     });
 
     testWidgets('continue is disabled until a bank is chosen', (tester) async {
-      await tester.pumpWidget(harness(
-        const BankSelectionScreen(isOnboarding: true),
-        preferences: const UserPreferences(),
-      ));
+      await tester.pumpWidget(
+        harness(
+          const BankSelectionScreen(isOnboarding: true),
+          preferences: const UserPreferences(),
+        ),
+      );
       await tester.pumpAndSettle();
 
       final button = tester.widget<FilledButton>(
@@ -561,8 +608,9 @@ void main() {
   });
 
   group('parser debug screen', () {
-    testWidgets('parses a pasted notification without saving it',
-        (tester) async {
+    testWidgets('parses a pasted notification without saving it', (
+      tester,
+    ) async {
       await tester.pumpWidget(harness(const ParserDebugScreen()));
       await tester.pumpAndSettle();
 

@@ -283,14 +283,15 @@ class BudgetBar extends StatelessWidget {
                     ),
                   ),
                 ),
-                Text(
-                  '${Fmt.money(progress.spentCents, currency: budget.currency)}'
-                  ' / ${Fmt.moneyCompact(budget.amountCents, currency: budget.currency)}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
+                if (onTap != null) Icon(Icons.edit_outlined, size: 17,
+                  color: theme.colorScheme.onSurfaceVariant),
               ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${Fmt.money(progress.spentCents, currency: budget.currency)}'
+              ' / ${Fmt.moneyCompact(budget.amountCents, currency: budget.currency)}',
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: 10),
             ClipRRect(

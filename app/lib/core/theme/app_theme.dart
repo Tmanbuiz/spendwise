@@ -9,8 +9,9 @@ import 'package:spendwise_parser/spendwise_parser.dart';
 /// money-out need to be distinguishable before any text is parsed, and the
 /// category colours need to stay separable in a donut chart in both themes.
 abstract final class AppTheme {
-  static const Color brand = Color(0xFF4338CA);
-  static const Color brandBright = Color(0xFF6366F1);
+  static const Color brand = Color(0xFF087F79);
+  static const Color brandBright = Color(0xFF65E2CB);
+  static const Color navy = Color(0xFF122D3B);
   static const Color positive = Color(0xFF059669);
   static const Color negative = Color(0xFFDC2626);
   static const Color warning = Color(0xFFD97706);
@@ -28,25 +29,41 @@ abstract final class AppTheme {
       brightness: brightness,
     );
 
-    final surface = isDark ? const Color(0xFF15161C) : const Color(0xFFF7F7FB);
-    final card = isDark ? const Color(0xFF1E202A) : Colors.white;
+    final surface = isDark ? const Color(0xFF0D1B24) : const Color(0xFFF3F6F7);
+    final card = isDark ? const Color(0xFF172B35) : Colors.white;
 
     final base = ThemeData(
       useMaterial3: true,
-      colorScheme: scheme.copyWith(surface: surface),
+      colorScheme: scheme.copyWith(
+        surface: surface,
+        primary: isDark ? brandBright : brand,
+        onPrimary: isDark ? navy : Colors.white,
+        onSurface: isDark ? const Color(0xFFE7F0F2) : navy,
+        onSurfaceVariant: isDark
+            ? const Color(0xFFB0C3CC)
+            : const Color(0xFF566B76),
+      ),
       scaffoldBackgroundColor: surface,
       splashFactory: InkSparkle.splashFactory,
     );
 
     return base.copyWith(
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: brand,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        highlightElevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
       appBarTheme: AppBarTheme(
         backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        systemOverlayStyle:
-            isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        systemOverlayStyle: isDark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
         titleTextStyle: base.textTheme.titleLarge?.copyWith(
           fontWeight: FontWeight.w700,
           letterSpacing: -0.3,
@@ -58,38 +75,42 @@ abstract final class AppTheme {
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radius),
+          side: BorderSide(
+            color: isDark ? const Color(0xFF263E49) : const Color(0xFFE3EBED),
+          ),
         ),
       ),
-      textTheme: base.textTheme.apply(fontFamilyFallback: const <String>[
-        'SF Pro Display',
-        'Roboto',
-      ]).copyWith(
-        displaySmall: base.textTheme.displaySmall?.copyWith(
-          fontWeight: FontWeight.w800,
-          letterSpacing: -1.2,
-        ),
-        headlineMedium: base.textTheme.headlineMedium?.copyWith(
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.6,
-        ),
-        titleMedium: base.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+      textTheme: base.textTheme
+          .apply(fontFamilyFallback: const <String>['SF Pro Display', 'Roboto'])
+          .copyWith(
+            displaySmall: base.textTheme.displaySmall?.copyWith(
+              fontWeight: FontWeight.w800,
+              letterSpacing: -1.2,
+            ),
+            headlineMedium: base.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.6,
+            ),
+            titleMedium: base.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: card,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 16,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusSmall),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusSmall),
-          borderSide: BorderSide(color: scheme.outlineVariant.withValues(
-            alpha: 0.5,
-          )),
+          borderSide: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: 0.5),
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(radiusSmall),
@@ -102,10 +123,7 @@ abstract final class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radiusSmall + 2),
           ),
-          textStyle: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 16,
-          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -118,9 +136,9 @@ abstract final class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: card,
-        indicatorColor: scheme.primary.withValues(alpha: 0.14),
+        indicatorColor: (isDark ? brandBright : brand).withValues(alpha: 0.14),
         elevation: 0,
-        height: 68,
+        height: 76,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
       dividerTheme: DividerThemeData(
@@ -129,9 +147,7 @@ abstract final class AppTheme {
         thickness: 1,
       ),
       chipTheme: base.chipTheme.copyWith(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(999),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
         side: BorderSide.none,
       ),
     );
