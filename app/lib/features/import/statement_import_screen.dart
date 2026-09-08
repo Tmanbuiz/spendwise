@@ -3,13 +3,13 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:spendwise_parser/spendwise_parser.dart';
 
 import '../../core/formatters.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/app_transaction.dart';
-import '../../data/models/financial_document.dart';
 import '../../services/statement_import_service.dart';
 import '../../state/financial_providers.dart';
 import '../../state/providers.dart';
