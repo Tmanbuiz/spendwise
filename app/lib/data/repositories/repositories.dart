@@ -60,11 +60,12 @@ class DataLayer {
     required this.accounts,
     required this.budgets,
     required this.rules,
-    required this.documents,
-    required this.financialRules,
+    FinancialDocumentRepository? documents,
+    FinancialRuleRepository? financialRules,
     required this.preferences,
     required this.isRemote,
-  });
+  })  : documents = documents ?? const _EmptyFinancialDocumentRepository(),
+        financialRules = financialRules ?? const _EmptyFinancialRuleRepository();
 
   final TransactionRepository transactions;
   final AccountRepository accounts;
@@ -77,4 +78,33 @@ class DataLayer {
   /// False when running against the local store, so the UI can say so rather
   /// than letting the user believe their data is synced.
   final bool isRemote;
+}
+
+/// Defaults keep existing fake DataLayers used by older tests and integrations
+/// source-compatible. Real local and Supabase data layers always provide the
+/// persistent implementations explicitly.
+class _EmptyFinancialDocumentRepository implements FinancialDocumentRepository {
+  const _EmptyFinancialDocumentRepository();
+
+  @override
+  Future<List<FinancialDocument>> list() async => const <FinancialDocument>[];
+
+  @override
+  Future<void> upsert(FinancialDocument document) async {}
+
+  @override
+  Future<void> delete(String id) async {}
+}
+
+class _EmptyFinancialRuleRepository implements FinancialRuleRepository {
+  const _EmptyFinancialRuleRepository();
+
+  @override
+  Future<List<FinancialRule>> list() async => const <FinancialRule>[];
+
+  @override
+  Future<void> upsert(FinancialRule rule) async {}
+
+  @override
+  Future<void> delete(String id) async {}
 }
