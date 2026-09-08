@@ -6,6 +6,8 @@ import 'package:spendwise_parser/spendwise_parser.dart';
 import '../models/account.dart';
 import '../models/app_transaction.dart';
 import '../models/budget.dart';
+import '../models/financial_document.dart';
+import '../models/financial_rule.dart';
 import '../models/user_preferences.dart';
 import 'repositories.dart';
 
@@ -28,6 +30,8 @@ class LocalStore {
       accounts: LocalAccountRepository(store),
       budgets: LocalBudgetRepository(store),
       rules: LocalRuleRepository(store),
+      documents: LocalFinancialDocumentRepository(store),
+      financialRules: LocalFinancialRuleRepository(store),
       preferences: LocalPreferencesRepository(store),
       isRemote: false,
     );
@@ -174,6 +178,56 @@ class LocalRuleRepository implements MerchantRuleRepository {
   @override
   Future<void> delete(String id) async {
     final rows = _store.readList(_key)..removeWhere((r) => r['id'] == id);
+    await _store.writeList(_key, rows);
+  }
+}
+
+class LocalFinancialDocumentRepository implements FinancialDocumentRepository {
+  LocalFinancialDocumentRepository(this._store);
+  static const _key = 'spendwise.financial_documents';
+  final LocalStore _store;
+
+  @override
+  Future<List<FinancialDocument>> list() async {
+    final documents = _store
+        .readList(_key)
+        .map(FinancialDocument.fromJson)
+        .toList()
+      ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
+    return documents;
+  }
+
+  @override
+  Future<void> upsert(FinancialDocument document) => _store.writeList(
+        _key,
+        _upsertRow(_store.readList(_key), document.toJson()),
+      );
+
+  @override
+  Future<void> delete(String id) async {
+    final rows = _store.readList(_key)..removeWhere((row) => row['id'] == id);
+    await _store.writeList(_key, rows);
+  }
+}
+
+class LocalFinancialRuleRepository implements FinancialRuleRepository {
+  LocalFinancialRuleRepository(this._store);
+  static const _key = 'spendwise.financial_rules';
+  final LocalStore _store;
+
+  @override
+  Future<List<FinancialRule>> list() async =>
+      _store.readList(_key).map(FinancialRule.fromJson).toList();
+
+  @override
+  Future<void> upsert(FinancialRule rule) => _store.writeList(
+        _key,
+        _upsertRow(_store.readList(_key), rule.toJson()),
+      );
+
+  @override
+  Future<void> delete(String id) async {
+    final rows = _store.readList(_key)..removeWhere((row) => row['id'] == id);
     await _store.writeList(_key, rows);
   }
 }
