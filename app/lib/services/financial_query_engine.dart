@@ -74,7 +74,13 @@ class FinancialQueryEngine {
         .where((t) => window == null || window.contains(t.occurredAt))
         .toList();
 
-    if (_containsAny(lower, <String>['investment', 'invested', 'saving', 'savings'])) {
+    if (_containsAny(lower, <String>[
+      'investment',
+      'invested',
+      'invest',
+      'saving',
+      'savings',
+    ])) {
       return _ruleKindAnswer(
         FinancialRuleKind.investment,
         'Investments & savings',
