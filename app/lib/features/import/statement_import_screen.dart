@@ -6,17 +6,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spendwise_parser/spendwise_parser.dart';
 
 import '../../core/formatters.dart';
+import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/app_transaction.dart';
+import '../../data/models/financial_document.dart';
 import '../../services/statement_import_service.dart';
+import '../../state/financial_providers.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
 
-/// Import a downloaded bank statement.
-///
-/// Always previews before writing. A statement import is bulk: one wrong
-/// column guess would add dozens of wrong rows at once, which is a very
-/// different risk profile from a single mis-read notification.
+/// Import downloaded bank statements and retain the source file in the private
+/// Financial Vault after the user confirms the preview.
 class StatementImportScreen extends ConsumerStatefulWidget {
   const StatementImportScreen({super.key});
 
@@ -26,9 +26,9 @@ class StatementImportScreen extends ConsumerStatefulWidget {
 }
 
 class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
-  final List<StatementPreview> _previews = [];
-  List<File> _files = [];
-  final Map<String, AmountSign> _signOverrides = {};
+  final List<StatementPreview> _previews = <StatementPreview>[];
+  List<File> _files = <File>[];
+  final Map<String, AmountSign> _signOverrides = <String, AmountSign>{};
   bool _busy = false;
   String? _error;
 
@@ -85,6 +85,7 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
         await ref.read(transactionsProvider.future),
       );
       if (!mounted) return;
+
       for (final file in _files) {
         final preview = await _service.preview(
           file,
@@ -94,6 +95,9 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
         );
         if (!mounted) return;
         _previews.add(preview);
+
+        // Grow the preview's working history so files selected in one batch
+        // reconcile with each other as well as with already stored data.
         for (final transaction in _service.apply(
           preview.result,
           existing: existing,
@@ -103,9 +107,7 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
           existing.add(transaction);
         }
       }
-      setState(() {
-        _busy = false;
-      });
+      setState(() => _busy = false);
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
@@ -119,16 +121,24 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
 
   Future<void> _import() async {
     if (_previews.isEmpty) return;
-
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
 
     var saved = 0;
+    var archived = 0;
+    var archiveFailures = 0;
+
     try {
       final existing = List<AppTransaction>.from(
         await ref.read(transactionsProvider.future),
       );
       if (!mounted) return;
-      for (final preview in _previews) {
+
+      for (var index = 0; index < _previews.length; index++) {
+        final preview = _previews[index];
+        final file = _files[index];
         final writes = _service.apply(
           preview.result,
           existing: existing,
@@ -141,12 +151,38 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
           existing.add(transaction);
           saved++;
         }
+
+        // Archiving is deliberately best-effort after transaction writes. A
+        // Storage outage must not roll back a correct statement import.
+        try {
+          if (!await _alreadyArchived(file, preview)) {
+            final document = await ref
+                .read(financialVaultServiceProvider)
+                .archiveStatement(
+                  file,
+                  preview,
+                  documentId: generateId(),
+                  importedTransactionCount: writes.length,
+                );
+            await ref.read(documentsProvider.notifier).upsert(document);
+            archived++;
+          }
+        } on Object {
+          archiveFailures++;
+        }
       }
 
       if (!mounted) return;
       setState(() => _busy = false);
+      final archiveMessage = archiveFailures > 0
+          ? ' $archiveFailures source file${archiveFailures == 1 ? '' : 's'} could not be archived; transactions were still saved.'
+          : archived > 0
+              ? ' Archived $archived source statement${archived == 1 ? '' : 's'} in Financial Vault.'
+              : ' Source statements were already in Financial Vault.';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Saved $saved transactions to history.')),
+        SnackBar(
+          content: Text('Saved $saved transactions to history.$archiveMessage'),
+        ),
       );
       Navigator.of(context).pop();
     } on Object catch (_) {
@@ -159,20 +195,53 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
     }
   }
 
+  Future<bool> _alreadyArchived(File file, StatementPreview preview) async {
+    final size = await file.length();
+    final existing = await ref.read(documentsProvider.future);
+    DateTime? first;
+    DateTime? last;
+    for (final row in preview.result.rows) {
+      if (first == null || row.date.isBefore(first)) first = row.date;
+      if (last == null || row.date.isAfter(last)) last = row.date;
+    }
+
+    return existing.any((document) {
+      if (document.fileName != preview.fileName || document.sizeBytes != size) {
+        return false;
+      }
+      return _sameDay(document.periodStart, first) &&
+          _sameDay(document.periodEnd, last);
+    });
+  }
+
+  bool _sameDay(DateTime? a, DateTime? b) {
+    if (a == null || b == null) return a == b;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final newCount = _previews.fold<int>(
       0,
-      (sum, p) => sum + p.willInsert.length,
+      (sum, preview) => sum + preview.willInsert.length,
     );
     final mergeCount = _previews.fold<int>(
       0,
-      (sum, p) => sum + p.willMerge.length,
+      (sum, preview) => sum + preview.willMerge.length,
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Import statements')),
+      appBar: AppBar(
+        title: const Text('Import statements'),
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Financial Vault',
+            onPressed: () => context.push(Routes.vault),
+            icon: const Icon(Icons.folder_copy_outlined),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
         children: <Widget>[
@@ -186,10 +255,8 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Touch and hold a file in the picker to select several. '
-                  'Review each file below before adding it to history.\n\n'
-                  'CIBC online banking → pick an account → Download '
-                  'transactions → CSV.\n'
+                  'Touch and hold a file in the picker to select several. Review each file below before adding it to history.\n\n'
+                  'CIBC online banking → pick an account → Download transactions → CSV.\n'
                   'Wealthsimple → Activity → export.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
@@ -204,15 +271,32 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
                     borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
                   ),
                   child: Text(
-                    'CSV is far more reliable than PDF. A CSV has real '
-                    'columns; a PDF only has text at positions, so the '
-                    'columns have to be guessed back. PDF import works, but '
-                    'check the preview carefully.',
+                    'CSV is far more reliable than PDF. A CSV has real columns; a PDF only has text at positions, so the columns have to be guessed back. PDF import works, but check the preview carefully.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: AppTheme.warning,
                       height: 1.45,
                     ),
                   ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Icon(
+                      Icons.lock_outline_rounded,
+                      size: 18,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'After import, the original source file is kept privately in Financial Vault so you do not have to upload it again later.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
@@ -247,38 +331,38 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
             Text(
               '${_previews.length} statements · $newCount new · $mergeCount matching',
             ),
-            for (final preview in _previews) ...<Widget>[
+            for (var index = 0; index < _previews.length; index++) ...<Widget>[
               const SizedBox(height: 20),
               _PreviewCard(
-                preview: preview,
-                signOverride:
-                    _signOverrides[_files[_previews.indexOf(preview)].path],
+                preview: _previews[index],
+                signOverride: _signOverrides[_files[index].path],
                 onFlipSign: () {
+                  final preview = _previews[index];
                   setState(() {
-                    _signOverrides[_files[_previews.indexOf(preview)].path] =
+                    _signOverrides[_files[index].path] =
                         preview.result.signConvention ==
-                            AmountSign.negativeIsSpending
-                        ? AmountSign.positiveIsSpending
-                        : AmountSign.negativeIsSpending;
+                                AmountSign.negativeIsSpending
+                            ? AmountSign.positiveIsSpending
+                            : AmountSign.negativeIsSpending;
                   });
                   _buildPreview();
                 },
               ),
-              const SizedBox(height: 20),
-              if (preview.isEmpty)
+              if (_previews[index].isEmpty) ...<Widget>[
+                const SizedBox(height: 12),
                 SectionCard(
                   child: Text(
-                    'No transactions could be read from that file. If it is a '
-                    'PDF, try the CSV export instead.',
+                    'No transactions could be read from that file. If it is a PDF, try the CSV export instead.',
                     style: theme.textTheme.bodySmall,
                   ),
                 ),
+              ],
             ],
+            const SizedBox(height: 20),
             FilledButton(
               onPressed: newCount + mergeCount == 0 ? null : _import,
               child: Text(
-                'Import $newCount new'
-                '${mergeCount == 0 ? '' : ', update $mergeCount'}',
+                'Import $newCount new${mergeCount == 0 ? '' : ', update $mergeCount'}',
               ),
             ),
           ],
@@ -328,10 +412,7 @@ class _PreviewCard extends StatelessWidget {
           ),
           const Divider(height: 24),
           _Line(label: 'Rows read', value: '${preview.result.rows.length}'),
-          _Line(
-            label: 'New transactions',
-            value: '${preview.willInsert.length}',
-          ),
+          _Line(label: 'New transactions', value: '${preview.willInsert.length}'),
           _Line(
             label: 'Match something already captured',
             value: '${preview.willMerge.length}',
@@ -433,29 +514,21 @@ class _Line extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: <Widget>[
           Expanded(
             child: Text(
               label,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: warn
-                    ? AppTheme.warning
-                    : theme.colorScheme.onSurfaceVariant,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ),
           Text(
             value,
-            style:
-                (emphasise
-                        ? theme.textTheme.titleMedium
-                        : theme.textTheme.bodyMedium)
-                    ?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: warn ? AppTheme.warning : null,
-                    ),
+            style: (emphasise ? theme.textTheme.labelLarge : theme.textTheme.bodySmall)
+                ?.copyWith(color: warn ? AppTheme.warning : null),
           ),
         ],
       ),
