@@ -48,6 +48,13 @@ class FinancialRulesNotifier extends AsyncNotifier<List<FinancialRule>> {
   Future<List<FinancialRule>> build() =>
       ref.watch(dataLayerProvider).financialRules.list();
 
+  Future<void> refresh() async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => ref.read(dataLayerProvider).financialRules.list(),
+    );
+  }
+
   Future<void> upsert(FinancialRule rule) async {
     await ref.read(dataLayerProvider).financialRules.upsert(rule);
     state = await AsyncValue.guard(
