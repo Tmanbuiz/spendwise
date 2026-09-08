@@ -238,8 +238,8 @@ abstract final class CardStatementReader {
             // only the last left the check comparing every row against one
             // card's subtotal, which rejected a correct parse of a statement
             // whose second card carried a single $6.29 purchase.
-            declared[awaitingTotalFor!] =
-                (declared[awaitingTotalFor!] ?? 0) + cents.abs();
+            final key = awaitingTotalFor;
+            declared[key] = (declared[key] ?? 0) + cents.abs();
           }
           awaitingTotalFor = null;
           discard();
