@@ -48,6 +48,20 @@ abstract final class BuiltInRules {
       'YOUR INDEPENDENT GROCER', 'VALU MART', 'FORTINOS', 'COSTCO',
       'T AND T SUPERMARKET', 'GROCERY', 'SUPERMARKET', 'FRUIT MARKET',
       'BUTCHER', 'BAKERY', 'LCBO', 'BEER STORE', 'SAQ', 'WINE RACK',
+
+      // Walmart's Canadian Supercentres are full supermarkets, and the
+      // spending pattern says so: a $106 average across weekly visits is a
+      // food shop, not discretionary retail. Filed under Shopping it made
+      // groceries look smaller than they are and Shopping larger.
+      'WALMART SUPERCENTER', 'WAL-MART SUPERCENTER', 'WAL MART SUPERCENTER',
+      'WALMART SUPERCENTRE', 'WAL-MART SUPERCENTRE',
+
+      // Independent grocers name themselves after what they sell rather than
+      // using a chain's name, and they are where a lot of household food
+      // money actually goes — more here than at any chain.
+      'MEAT MARKET', 'FRESH MARKET', 'FARMERS MARKET', 'FARMER MARKET',
+      'AFRICAN MARKET', 'ASIAN MARKET', 'HALAL', 'CARIBBEAN',
+      'PRODUCE', 'FISH MARKET', 'SEAFOOD MARKET',
     ])
       _r(name, SpendCategory.groceries),
   ];
@@ -107,6 +121,7 @@ abstract final class BuiltInRules {
       'LULULEMON', 'SIMONS', 'SHEIN', 'TEMU', 'ETSY', 'EBAY', 'WAYFAIR',
       'STRUCTUBE', 'LEONS', 'THE BRICK', 'PRINCESS AUTO', 'PRINCESS AUTO',
       'BED BATH AND BEYOND', 'MICHAELS', 'SEPHORA', 'BATH AND BODY WORKS',
+      'VALUE VILLAGE', 'GOODWILL', 'TALIZE', 'SALVATION ARMY THRIFT',
     ])
       _r(name, SpendCategory.shopping),
   ];

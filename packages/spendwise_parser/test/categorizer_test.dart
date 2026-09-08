@@ -331,10 +331,54 @@ void main() {
     test('Walmart is recognised however it is spelled', () {
       // Card statements print it hyphenated; the plain spelling matched none
       // of them, leaving every Walmart purchase uncategorised.
-      expect(of('WAL-MART SUPERCENTER#1067FREDERICTON NB'),
-          SpendCategory.shopping);
       expect(of('WALMART'), SpendCategory.shopping);
       expect(of('WAL MART'), SpendCategory.shopping);
+      expect(of('WAL-MART'), SpendCategory.shopping);
+    });
+  });
+
+  group('where the money actually goes', () {
+    final categorizer = Categorizer();
+
+    SpendCategory of(String merchant) =>
+        categorizer.categoryFor(merchant.toUpperCase());
+
+    test('a Walmart Supercentre is a grocery shop, a Walmart is a shop', () {
+      // The spending pattern settles it: $106 average across weekly visits is
+      // a food shop. Longest-match-wins does the rest — the Supercentre
+      // pattern is longer than the bare brand, so the two coexist.
+      expect(of('WAL-MART SUPERCENTER#1067FREDERICTON NB'),
+          SpendCategory.groceries);
+      expect(of('WALMART SUPERCENTRE'), SpendCategory.groceries);
+      expect(of('WALMART'), SpendCategory.shopping);
+    });
+
+    test('independent grocers are groceries, not Other', () {
+      // Named after what they sell rather than a chain, and collectively
+      // larger than any chain in this household's spending.
+      const grocers = <String>[
+        'VICTORY MEAT MARKET FREDERICTON NB',
+        'DIVINE AFRICAN MARKET FREDERICTON NB',
+        'MANGO FRESH MARKET FREDERICTON NB',
+        'ATLANTIC AFRO-CARIBBEANS FREDERICTON NB',
+        'ST MARYS SUPERMARKET FREDERICTON NB',
+        'ATLANTIC SUPERSTORE FR FREDERICTON NB',
+      ];
+      for (final merchant in grocers) {
+        expect(of(merchant), SpendCategory.groceries, reason: merchant);
+      }
+    });
+
+    test('a Caribbean restaurant is still dining, not groceries', () {
+      // `CARIBBEAN` earns groceries a market, but must not outrank the
+      // longer dining patterns.
+      expect(of('CARIBBEAN RESTAURANT TORONTO ON'), SpendCategory.dining);
+    });
+
+    test('discount and thrift shops stay Shopping', () {
+      expect(of('DOLLARAMA # 161 FREDERICTON NB'), SpendCategory.shopping);
+      expect(of('VALUE VILLAGE # 2104 FREDERICTON NB'), SpendCategory.shopping);
+      expect(of('GIANT TIGER'), SpendCategory.shopping);
     });
   });
 }
