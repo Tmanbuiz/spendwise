@@ -12,6 +12,7 @@ import '../data/models/bank.dart';
 import '../data/models/budget.dart';
 import '../data/models/user_preferences.dart';
 import '../data/month_summary.dart';
+import '../data/monthly_overview.dart';
 import '../data/spending_insights.dart';
 import '../data/repositories/local_repositories.dart';
 import '../data/repositories/repositories.dart';
@@ -299,6 +300,11 @@ class MonthOffsetNotifier extends Notifier<int> {
   /// is nothing to show there.
   void step(int delta) => state = (state + delta).clamp(-240, 0);
 
+  /// Jumps straight to a month the user picked, rather than stepping.
+  /// Clamped the same way [step] is, so a picker cannot land the report
+  /// in the future where there is nothing to show.
+  void jumpTo(int offset) => state = offset.clamp(-240, 0);
+
   void reset() => state = 0;
 
   bool get isCurrentMonth => state == 0;
@@ -329,6 +335,35 @@ final monthComparisonProvider = Provider<MonthComparison>((ref) {
     ),
   );
 });
+
+/// Everything the Monthly Overview screen shows for the month currently
+/// selected, including the five months before it for the trend strip.
+final monthlyOverviewProvider = Provider<MonthlyOverview>((ref) {
+  final now = ref.watch(reportingNowProvider);
+  final preferences =
+      ref.watch(preferencesProvider).value ?? const UserPreferences();
+  final transactions =
+      (ref.watch(transactionsProvider).value ?? const <AppTransaction>[])
+          .where((t) => !t.occurredAt.isAfter(now))
+          .toList();
+
+  return MonthlyOverview.build(
+    transactions: transactions,
+    window: reportingWindow(
+      now,
+      ref.watch(monthOffsetProvider),
+      preferences.monthStartDay,
+    ),
+    currency: preferences.currency,
+  );
+});
+
+/// The offset [MonthOffsetNotifier] needs to land on a calendar month the
+/// user picked directly, rather than one they stepped to.
+int monthOffsetFor(DateTime now, int year, int month, int startDay) {
+  final current = MonthWindow.forDate(now, monthStartDay: startDay).start;
+  return (year - current.year) * 12 + (month - current.month);
+}
 
 /// How far back month navigation can usefully go: the offset of the oldest
 /// month that actually holds a transaction.

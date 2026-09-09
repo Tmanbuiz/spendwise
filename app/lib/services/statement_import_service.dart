@@ -186,6 +186,7 @@ class StatementImportService {
       date: row.date,
       eventType: row.eventType,
       merchant: row.description,
+      recordedDirection: row.direction,
     );
   }
 }

@@ -2,8 +2,10 @@ import '../../widgets/spending_changes_card.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/formatters.dart';
+import '../../core/router/app_router.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
 import '../../widgets/insight_widgets.dart';
@@ -21,7 +23,16 @@ class InsightsScreen extends ConsumerWidget {
       (max, month) => month.totalSpentCents > max ? month.totalSpentCents : max,
     );
     return Scaffold(
-      appBar: AppBar(title: const Text('Insights')),
+      appBar: AppBar(
+        title: const Text('Insights'),
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Monthly overview',
+            icon: const Icon(Icons.calendar_month_outlined),
+            onPressed: () => context.push(Routes.monthlyOverview),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
         children: [

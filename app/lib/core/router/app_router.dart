@@ -13,6 +13,7 @@ import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/debug/parser_debug_screen.dart';
 import '../../features/import/statement_import_screen.dart';
 import '../../features/insights/insights_screen.dart';
+import '../../features/insights/monthly_overview_screen.dart';
 import '../../features/onboarding/bank_selection_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/onboarding/permission_screen.dart';
@@ -45,6 +46,7 @@ abstract final class Routes {
   static const transactions = '/home/transactions';
   static const budgets = '/home/budgets';
   static const insights = '/home/insights';
+  static const monthlyOverview = '/home/insights/month';
   static const settings = '/home/settings';
   static const accounts = '/accounts';
   static const categories = '/categories';
@@ -101,6 +103,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.notificationAccess,
         builder: (_, _) => const PermissionScreen(),
+      ),
+      GoRoute(
+        path: Routes.monthlyOverview,
+        builder: (_, _) => const MonthlyOverviewScreen(),
       ),
       GoRoute(path: Routes.accounts, builder: (_, _) => const AccountsScreen()),
       GoRoute(

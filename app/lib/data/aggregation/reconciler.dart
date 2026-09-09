@@ -15,7 +15,7 @@ enum ReconcileAction {
   /// Already imported from this aggregator on an earlier sync. Update in place.
   updateExisting,
 
-  /// Recognised but deliberately not stored — a decline, or an event type the
+  /// Recognised but deliberately not stored â a decline, or an event type the
   /// app does not record.
   skip,
 }
@@ -40,18 +40,18 @@ class ReconcileResult {
 /// This exists because the two sources overlap completely. A card tap fires a
 /// push alert within seconds; the same purchase arrives from the aggregator a
 /// day or two later. Without reconciliation, enabling an aggregator would
-/// silently double every total the user has — the single worst failure this
+/// silently double every total the user has â the single worst failure this
 /// app could have.
 ///
 /// Matching cannot be exact, because the two sources genuinely disagree:
 ///
-///   * **Amount** — a restaurant notification says $40.00 when the card is
+///   * **Amount** â a restaurant notification says $40.00 when the card is
 ///     tapped; the posted amount is $48.00 once the tip is added. Foreign
 ///     purchases drift with the exchange rate.
-///   * **Merchant** — a notification carries the terminal string
+///   * **Merchant** â a notification carries the terminal string
 ///     (`SQ *BLUE DOOR CAFE #12`); aggregators return a cleaned name
 ///     (`Blue Door Cafe`).
-///   * **Date** — the notification is the moment of purchase; the aggregator
+///   * **Date** â the notification is the moment of purchase; the aggregator
 ///     date is when it posted, up to several days later.
 ///
 /// So matching is: same card, same event type, merchant agreeing loosely,
@@ -72,7 +72,7 @@ class CrossSourceReconciler {
   final double amountTolerance;
 
   /// Upper bound on that drift in absolute terms, so a large purchase does not
-  /// get an implausibly wide window — 30% of $3,000 would otherwise match
+  /// get an implausibly wide window â 30% of $3,000 would otherwise match
   /// almost anything.
   final int absoluteToleranceCents;
 
@@ -164,7 +164,7 @@ class CrossSourceReconciler {
     // Merchant is the strongest identity signal, so a *known* disagreement is
     // a veto rather than a deduction. Two $45.67 purchases on the same card on
     // the same day at different shops are entirely ordinary, and merging them
-    // would delete one — a worse failure than showing a duplicate.
+    // would delete one â a worse failure than showing a duplicate.
     final bothMerchantsKnown = incoming.merchantNormalized != null &&
         candidate.merchantNormalized != null;
     if (bothMerchantsKnown && affinity < _merchantVetoFloor) return 0;
@@ -198,7 +198,7 @@ class CrossSourceReconciler {
     return incoming - existing <= allowed;
   }
 
-  /// Unknown card digits are neutral, not disqualifying — plenty of alerts
+  /// Unknown card digits are neutral, not disqualifying â plenty of alerts
   /// omit them.
   bool _cardsAgree(String? a, String? b) {
     if (a == null || b == null) return false;
@@ -249,7 +249,9 @@ class CrossSourceReconciler {
       category: category,
       accountLast4: incoming.accountLast4 ?? existing.accountLast4,
       fingerprint: _providerFingerprint(incoming),
-      // A posted transaction resolves whatever the alert could not read.
+      // A posted transaction resolves whatever the alert could not read —
+      // including which way the money went, which an alert rarely says.
+      direction: incoming.recordedDirection,
       needsReview: false,
     );
   }
@@ -273,11 +275,12 @@ class CrossSourceReconciler {
       accountId: incoming.accountId,
       accountLast4: incoming.accountLast4,
       fingerprint: _providerFingerprint(incoming),
+      recordedDirection: incoming.recordedDirection,
     );
   }
 
   /// SpendWise's own rules first, the aggregator's category only as a
-  /// fallback — the user's rules must beat a third party's guess.
+  /// fallback â the user's rules must beat a third party's guess.
   SpendCategory _categoryFor(
     AggregatorTransaction incoming,
     String? merchant,
@@ -291,7 +294,7 @@ class CrossSourceReconciler {
   }
 
   /// Aggregator rows are identified by the provider's own id, which is stable
-  /// across syncs — no fuzzy hashing needed once a row has one.
+  /// across syncs â no fuzzy hashing needed once a row has one.
   static String _providerFingerprint(AggregatorTransaction incoming) =>
       'agg:${incoming.providerId}';
 }

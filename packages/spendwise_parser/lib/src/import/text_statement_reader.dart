@@ -1,4 +1,5 @@
 import '../models/money.dart';
+import '../models/transaction_direction.dart';
 import '../models/transaction_event_type.dart';
 import 'card_statement_reader.dart';
 import 'statement_reader.dart';
@@ -423,6 +424,12 @@ abstract final class TextStatementReader {
             ? _outwardType(description)
             : _inwardType(description),
         lineNumber: recordLine,
+        // The balance said which way the money went. That is the statement's
+        // own arithmetic rather than a guess from wording, so it is recorded
+        // instead of being inferred again later.
+        direction: outward
+            ? TransactionDirection.outbound
+            : TransactionDirection.inbound,
       ));
 
       previousBalance = balance;

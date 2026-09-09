@@ -25,6 +25,7 @@ export 'src/models/money.dart';
 export 'src/models/notification_message.dart';
 export 'src/models/parsed_transaction.dart';
 export 'src/models/raw_retention.dart';
+export 'src/models/transaction_direction.dart';
 export 'src/models/transaction_event_type.dart';
 export 'src/parser_registry.dart';
 export 'src/util/account_extractor.dart';

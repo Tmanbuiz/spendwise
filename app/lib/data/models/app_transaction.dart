@@ -48,12 +48,30 @@ class AppTransaction {
     this.needsReview = false,
     this.excludedByUser = false,
     this.categoryWasSetByUser = false,
+    this.recordedDirection,
   });
+
+  /// The direction the source actually observed, or null when it never
+  /// knew. Kept separate from [direction] so an inference made today is
+  /// never mistaken tomorrow for something the bank actually said.
+  final TransactionDirection? recordedDirection;
 
   final String id;
   final TransactionEventType eventType;
 
-  /// Always positive. Direction is carried by [eventType].
+  /// Which way the money moved.
+  ///
+  /// The event type cannot answer this on its own: an e-Transfer sent and
+  /// an e-Transfer received are both `transfer`. A statement reader that
+  /// could see the running balance knows for certain and records it;
+  /// anything else falls back to what the event type implies, which never
+  /// counts an unknown transfer as money coming in.
+  TransactionDirection get direction =>
+      recordedDirection ?? TransactionDirection.inferFrom(eventType);
+
+  bool get isInbound => direction == TransactionDirection.inbound;
+
+  /// Always positive. Direction is carried by [direction].
   final int amountCents;
   final String currency;
   final DateTime occurredAt;
@@ -123,6 +141,7 @@ class AppTransaction {
     bool? needsReview,
     bool? excludedByUser,
     bool? categoryWasSetByUser,
+    TransactionDirection? direction,
   }) {
     return AppTransaction(
       id: id,
@@ -144,6 +163,7 @@ class AppTransaction {
       excludedByUser: excludedByUser ?? this.excludedByUser,
       categoryWasSetByUser:
           categoryWasSetByUser ?? this.categoryWasSetByUser,
+      recordedDirection: direction ?? recordedDirection,
     );
   }
 
@@ -171,6 +191,7 @@ class AppTransaction {
         'needs_review': needsReview,
         'excluded_by_user': excludedByUser,
         'category_set_by_user': categoryWasSetByUser,
+        'direction': recordedDirection?.wireName,
       };
 
   static AppTransaction fromJson(Map<String, Object?> json) {
@@ -197,6 +218,12 @@ class AppTransaction {
       bankId: json['bank_id'] as String?,
       note: json['note'] as String?,
       fingerprint: json['fingerprint'] as String?,
+      // Absent on rows written before direction was recorded. Left null so
+      // the getter infers it, rather than defaulting to a value the row
+      // never actually claimed.
+      recordedDirection: json['direction'] == null
+          ? null
+          : TransactionDirection.fromWireName(json['direction']! as String),
       needsReview: (json['needs_review'] as bool?) ?? false,
       excludedByUser: (json['excluded_by_user'] as bool?) ?? false,
       categoryWasSetByUser: (json['category_set_by_user'] as bool?) ?? false,

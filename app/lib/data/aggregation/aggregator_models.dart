@@ -67,13 +67,18 @@ class AggregatorTransaction {
     this.accountId,
     this.category,
     this.isPending = false,
+    this.recordedDirection,
   });
+
+  /// The direction the source actually observed, or null when it never
+  /// knew.
+  final TransactionDirection? recordedDirection;
 
   /// The aggregator's own stable id. Used so re-syncing the same transaction
   /// updates rather than duplicates it.
   final String providerId;
 
-  /// Always positive; direction is carried by [eventType], matching the
+  /// Always positive; direction is carried by [direction], matching the
   /// convention the rest of the app uses.
   final int amountCents;
   final String currency;
@@ -82,6 +87,12 @@ class AggregatorTransaction {
   final DateTime date;
 
   final TransactionEventType eventType;
+
+  /// Which way the money moved, when the source knew. Aggregators sign
+  /// their amounts and statement readers can see the running balance;
+  /// anything else falls back to what the event type implies.
+  TransactionDirection get direction =>
+      recordedDirection ?? TransactionDirection.inferFrom(eventType);
   final String? merchant;
   final String? accountLast4;
   final String? accountId;

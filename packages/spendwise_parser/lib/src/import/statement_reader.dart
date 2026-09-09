@@ -1,4 +1,5 @@
 import '../models/money.dart';
+import '../models/transaction_direction.dart';
 import '../models/transaction_event_type.dart';
 import '../util/merchant_cleaner.dart';
 import 'csv_reader.dart';
@@ -11,7 +12,10 @@ class StatementRow {
     required this.amount,
     required this.eventType,
     required this.lineNumber,
-  });
+    TransactionDirection? direction,
+  }) : _direction = direction;
+
+  final TransactionDirection? _direction;
 
   final DateTime date;
   final String description;
@@ -21,6 +25,14 @@ class StatementRow {
   final Money amount;
 
   final TransactionEventType eventType;
+
+  /// Which way the money moved.
+  ///
+  /// A reader that can see the running balance knows this for certain and
+  /// passes it in. One that cannot falls back to what the event type implies,
+  /// which never counts an unknown transfer as money coming in.
+  TransactionDirection get direction =>
+      _direction ?? TransactionDirection.inferFrom(eventType);
 
   /// 1-based line in the source file, so a rejected row can be pointed at.
   final int lineNumber;

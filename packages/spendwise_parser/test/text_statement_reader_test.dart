@@ -306,6 +306,18 @@ Tolulope
       expect(result.rows.every((r) => !r.countsAsSpending), isTrue);
     });
 
+    // The event type cannot answer this: an e-Transfer sent and an e-Transfer
+    // received are both `transfer`. Only the balance separates them, which is
+    // why direction is recorded rather than inferred later.
+    test('the balance also records which way the money went', () {
+      final rows = TextStatementReader.read(text).rows;
+
+      expect(rows[0].direction, TransactionDirection.outbound);
+      expect(rows[1].direction, TransactionDirection.inbound);
+      expect(rows[2].direction, TransactionDirection.inbound);
+      expect(rows[3].direction, TransactionDirection.outbound);
+    });
+
     test('an e-Transfer is never counted as spending', () {
       expect(TextStatementReader.read(text).spendingTotalCents, 0);
     });

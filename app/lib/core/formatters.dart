@@ -53,6 +53,11 @@ abstract final class Fmt {
 
   static String monthName(DateTime when) => DateFormat('MMMM').format(when);
 
+  /// `Sep`. Takes a month number so a picker wheel does not have to build
+  /// a throwaway date for every row it draws.
+  static String monthAbbreviation(int month) =>
+      DateFormat('MMM').format(DateTime(2000, month));
+
   static String monthAndYear(DateTime when) =>
       DateFormat('MMMM y').format(when);
 
