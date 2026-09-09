@@ -503,12 +503,13 @@ abstract final class TextStatementReader {
     );
   }
 
-  /// Money out. Wording can still override it — a card payment is money out
-  /// of a chequing account but is not spending.
-  static TransactionEventType _outwardType(String description) {
-    final text = description.toLowerCase();
-
-    // Paying down a card moves debt, it does not create new spending — and
+  /// Wording that means an outward line is not spending.
+  ///
+  /// Both reading passes consult this, so a loan instalment or a savings
+  /// contribution is treated the same way whichever layout the statement
+  /// used. Returns `null` when nothing in the wording rules the line out.
+  static TransactionEventType? _nonSpendingWording(String text) {
+    // Paying down a card moves debt, it does not create new spending â and
     // the purchases on that card were already counted when they happened.
     if (RegExp(r'\bto\s+card\b').hasMatch(text) ||
         (text.contains('payment') &&
@@ -518,12 +519,28 @@ abstract final class TextStatementReader {
       return TransactionEventType.payment;
     }
 
+    // A loan instalment services debt, the same way a card payment does. The
+    // principal was never counted as spending when it was borrowed, so
+    // counting the repayment would be the only time that money ever reached a
+    // budget â and it would reach it in the wrong month.
+    if (RegExp(r'\bloans?\b').hasMatch(text) ||
+        RegExp(r'\bmortgage\b').hasMatch(text) ||
+        RegExp(r'\bline\s+of\s+credit\b').hasMatch(text)) {
+      return TransactionEventType.payment;
+    }
+
     // Money moved into the user's own investment or savings account is still
     // theirs. Counting a contribution as spending would tell someone they
     // overspent in the month they saved most.
+    //
+    // `DISATF` is CIBC's own code for a scheduled savings transfer. It reaches
+    // the statement as a bare "CIBC-DISATF" with nothing in the wording to
+    // say what it is, so it has to be recognised by name.
     if (text.contains('investment') ||
         text.contains('securities') ||
         text.contains('brokerage') ||
+        text.contains('savings') ||
+        text.contains('disatf') ||
         RegExp(r'\b(?:rrsp|tfsa|resp|fhsa)\b').hasMatch(text)) {
       return TransactionEventType.transfer;
     }
@@ -534,8 +551,14 @@ abstract final class TextStatementReader {
       return TransactionEventType.transfer;
     }
 
-    return TransactionEventType.purchase;
+    return null;
   }
+
+  /// Money out. Wording can still override it â a card payment is money out
+  /// of a chequing account but is not spending.
+  static TransactionEventType _outwardType(String description) =>
+      _nonSpendingWording(description.toLowerCase()) ??
+          TransactionEventType.purchase;
 
   /// Money in is never spending.
   static TransactionEventType _inwardType(String description) {
@@ -569,12 +592,10 @@ abstract final class TextStatementReader {
         (text.contains('thank you') || text.contains('received'))) {
       return TransactionEventType.payment;
     }
-    if (text.contains('e-transfer') ||
-        text.contains('etransfer') ||
-        text.contains('transfer') ||
-        text.contains('deposit')) {
-      return TransactionEventType.transfer;
-    }
+    final ruledOut = _nonSpendingWording(text);
+    if (ruledOut != null) return ruledOut;
+
+    if (text.contains('deposit')) return TransactionEventType.transfer;
     // A trailing CR marks a credit on many statements.
     if (RegExp(r'\bcr\b').hasMatch(text)) {
       return TransactionEventType.transfer;

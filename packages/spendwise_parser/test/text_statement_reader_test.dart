@@ -146,6 +146,40 @@ Sep 3   TIM HORTONS               4.50      120.00
       expect(result.rows.single.countsAsSpending, isFalse);
     });
 
+    test('a loan instalment is debt service, not spending', () {
+      final result =
+          TextStatementReader.read('Sep 4  CIBC LOAN PAYMENT  241.12');
+      expect(result.rows.single.eventType, TransactionEventType.payment);
+      expect(result.rows.single.countsAsSpending, isFalse);
+    });
+
+    test('a mortgage payment is debt service, not spending', () {
+      final result =
+          TextStatementReader.read('Sep 4  MORTGAGE PAYMENT  1240.00');
+      expect(result.rows.single.countsAsSpending, isFalse);
+    });
+
+    // CIBC prints scheduled savings transfers under its own internal code,
+    // with no word in the line saying that is what they are.
+    test('CIBC-DISATF is a savings transfer', () {
+      final result = TextStatementReader.read('Sep 4  CIBC-DISATF  50.00');
+      expect(result.rows.single.eventType, TransactionEventType.transfer);
+      expect(result.rows.single.countsAsSpending, isFalse);
+    });
+
+    test('a named savings transfer is not spending', () {
+      final result =
+          TextStatementReader.read('Sep 4  TRANSFER TO SAVINGS  100.00');
+      expect(result.rows.single.eventType, TransactionEventType.transfer);
+    });
+
+    // The loan rule matches a whole word, so a merchant that merely contains
+    // those letters is still an ordinary purchase.
+    test('a merchant whose name contains "loan" still counts', () {
+      final result = TextStatementReader.read('Sep 4  SLOANE COFFEE  6.75');
+      expect(result.rows.single.countsAsSpending, isTrue);
+    });
+
     test('an ordinary purchase counts', () {
       final result = TextStatementReader.read('Sep 4  SHEIN  28.51');
       expect(result.rows.single.countsAsSpending, isTrue);
