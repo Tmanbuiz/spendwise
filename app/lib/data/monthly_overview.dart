@@ -130,6 +130,7 @@ class MonthlyOverview {
     required this.trend,
     required this.currency,
     required this.lastTransactionAt,
+    required this.guessedRowCount,
   });
 
   final MonthWindow window;
@@ -155,6 +156,17 @@ class MonthlyOverview {
   /// screen can say how current it is instead of implying the month is
   /// complete.
   final DateTime? lastTransactionAt;
+
+  /// How many rows in the window never recorded which way they went, so
+  /// their side of the ledger is a guess from wording.
+  ///
+  /// Surfaced rather than hidden: a received e-Transfer is indistinguishable
+  /// from a sent one by wording alone, so a month full of them reports an
+  /// outflow that is too high and an income that is too low, and nothing on
+  /// the screen would otherwise say so.
+  final int guessedRowCount;
+
+  bool get isEstimated => guessedRowCount > 0;
 
   int get netCents => moneyInCents - moneyOutCents;
 
@@ -196,6 +208,7 @@ class MonthlyOverview {
       TransactionDirection.outbound: <SpendCategory, int>{},
     };
     DateTime? latest;
+    var guessed = 0;
 
     final windows = _windowsEndingAt(window, trendMonths);
     final trendIn = List<int>.filled(windows.length, 0);
@@ -219,6 +232,8 @@ class MonthlyOverview {
       }
 
       if (!window.contains(transaction.occurredAt)) continue;
+
+      if (transaction.recordedDirection == null) guessed++;
 
       final group = MoneyFlowGroup.of(transaction);
       final existing = groups[group];
@@ -265,6 +280,7 @@ class MonthlyOverview {
       ],
       currency: currency,
       lastTransactionAt: latest,
+      guessedRowCount: guessed,
     );
   }
 

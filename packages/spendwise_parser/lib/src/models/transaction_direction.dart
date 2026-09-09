@@ -28,15 +28,46 @@ enum TransactionDirection {
     return TransactionDirection.outbound;
   }
 
+  /// Wording that only ever describes money arriving.
+  ///
+  /// Kept deliberately narrow. `PAY` as a leading word is how banks label a
+  /// payroll credit — "PAY HARMONY FAMILY" — and the word boundary keeps it
+  /// from matching PAYMENT, which is usually money going the other way.
+  static final RegExp _arriving = RegExp(
+    r'^\s*pay\b|\bdirect\s+deposit\b|\bpayroll\b|\bdeposit\b|'
+    r'\binterest\s+paid\b|\bcredit\s+memo\b',
+    caseSensitive: false,
+  );
+
   /// The direction implied by [type] alone, for rows that predate this field
   /// or come from a source that never knew.
   ///
-  /// A refund is the only event type that is inbound by definition. Everything
-  /// else — transfers most of all — is assumed outbound, because that is the
-  /// reading that cannot silently inflate someone's income.
-  static TransactionDirection inferFrom(TransactionEventType type) {
-    return type == TransactionEventType.refund
-        ? TransactionDirection.inbound
-        : TransactionDirection.outbound;
+  /// A refund is the only event type that is inbound by definition.
+  /// Everything else is assumed outbound.
+  static TransactionDirection inferFrom(TransactionEventType type) =>
+      infer(type: type);
+
+  /// The best guess available for a row that never recorded its direction.
+  ///
+  /// [description] is consulted because assuming outbound for everything is
+  /// not the safe default it first appears to be: it files a salary as money
+  /// leaving the account, which overstates outflow by the largest single
+  /// figure on most statements. Only wording that cannot mean anything else
+  /// is treated as inbound — a sent and a received e-Transfer read
+  /// identically, and those are settled only by re-importing a statement
+  /// whose running balance says which way the money went.
+  static TransactionDirection infer({
+    required TransactionEventType type,
+    String? description,
+  }) {
+    if (type == TransactionEventType.refund) {
+      return TransactionDirection.inbound;
+    }
+    if (type == TransactionEventType.transfer &&
+        description != null &&
+        _arriving.hasMatch(description)) {
+      return TransactionDirection.inbound;
+    }
+    return TransactionDirection.outbound;
   }
 }

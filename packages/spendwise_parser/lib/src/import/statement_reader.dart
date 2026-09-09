@@ -32,7 +32,11 @@ class StatementRow {
   /// passes it in. One that cannot falls back to what the event type implies,
   /// which never counts an unknown transfer as money coming in.
   TransactionDirection get direction =>
-      _direction ?? TransactionDirection.inferFrom(eventType);
+      _direction ??
+      TransactionDirection.infer(
+        type: eventType,
+        description: description,
+      );
 
   /// 1-based line in the source file, so a rejected row can be pointed at.
   final int lineNumber;

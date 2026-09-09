@@ -418,6 +418,32 @@ void main() {
       expect(find.text('September 2026'), findsOneWidget);
     });
 
+    // Rows imported before direction was recorded understate income, and
+    // nothing else on the screen would say so.
+    testWidgets('says when the figures rest on a guess', (tester) async {
+      await tester.pumpWidget(harness(rows));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('never recorded which way'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('stays quiet when every row knows', (tester) async {
+      await tester.pumpWidget(
+        harness(<AppTransaction>[
+          tx(
+            id: 'a',
+            cents: 5000,
+            type: TransactionEventType.purchase,
+            direction: TransactionDirection.outbound,
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('never recorded which way'), findsNothing);
+    });
+
     testWidgets('an empty side says which side is empty', (tester) async {
       await tester.pumpWidget(
         harness(<AppTransaction>[

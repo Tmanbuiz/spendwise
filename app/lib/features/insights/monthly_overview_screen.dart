@@ -43,6 +43,10 @@ class _MonthlyOverviewScreenState
           _MonthChip(start: overview.window.start),
           const SizedBox(height: 14),
           _HeadlineCard(overview: overview),
+          if (overview.isEstimated) ...<Widget>[
+            const SizedBox(height: 10),
+            _EstimateNote(count: overview.guessedRowCount),
+          ],
           const SizedBox(height: 14),
           _TrendStrip(overview: overview, direction: _tab),
           if (overview.lastTransactionAt != null) ...<Widget>[
@@ -77,6 +81,54 @@ class _MonthlyOverviewScreenState
             ),
             _Breakdown(overview: overview, direction: _tab),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Says out loud that some of these figures are guesses.
+///
+/// Rows imported before the app recorded direction only know which way
+/// they went from their wording. A payroll credit says so; an e-Transfer
+/// does not, and those default to money out. Without this note the totals
+/// look exact, and a reader has no way to tell that their income is
+/// understated.
+class _EstimateNote extends StatelessWidget {
+  const _EstimateNote({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.warning.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 18,
+            color: AppTheme.warning,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              count == 1
+                  ? '1 transaction never recorded which way it went, so it '
+                        'is counted as money out. Re-import the statement '
+                        'for exact figures.'
+                  : '$count transactions never recorded which way they '
+                        'went, so they are counted as money out. Re-import '
+                        'the statement for exact figures.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
         ],
       ),
     );

@@ -67,7 +67,11 @@ class AppTransaction {
   /// anything else falls back to what the event type implies, which never
   /// counts an unknown transfer as money coming in.
   TransactionDirection get direction =>
-      recordedDirection ?? TransactionDirection.inferFrom(eventType);
+      recordedDirection ??
+      TransactionDirection.infer(
+        type: eventType,
+        description: merchant,
+      );
 
   bool get isInbound => direction == TransactionDirection.inbound;
 
