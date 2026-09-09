@@ -53,10 +53,21 @@ class _HomeShellState extends ConsumerState<HomeShell>
   ///
   /// Only asks whether anything is waiting; the import screen takes the
   /// queue itself, so a failed navigation cannot swallow the files.
+  /// True while the import screen this shell opened is still on top.
+  ///
+  /// Sharing several statements in quick succession resumes the app once
+  /// per file. Without this each resume stacked another import screen, and
+  /// only the first one ever saw the files — every screen above it drained
+  /// an empty queue and showed nothing.
+  bool _importOpen = false;
+
   Future<void> _openSharedStatements() async {
+    if (_importOpen) return;
     if (!await const SharedStatements().hasPending()) return;
     if (!mounted) return;
-    context.push(Routes.importStatement);
+    _importOpen = true;
+    await context.push(Routes.importStatement);
+    _importOpen = false;
   }
 
   @override

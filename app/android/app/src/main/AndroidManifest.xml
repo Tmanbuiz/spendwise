@@ -21,6 +21,18 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+
+            <!-- The VIEW filter below exists so a statement can be opened
+                 into the app. Left on, Flutter hands the intent's data URI
+                 to the router as though it were an in-app location, and
+                 opening a PDF lands on "no routes for location:
+                 file:///...". The file is collected from the intent on the
+                 platform side instead, so there is nothing here for the
+                 router to do. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false"
+              />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -33,7 +45,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="content"/>
                 <data android:scheme="file"/>
                 <data android:mimeType="application/pdf"/>

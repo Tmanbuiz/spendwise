@@ -26,7 +26,8 @@ class StatementImportScreen extends ConsumerStatefulWidget {
       _StatementImportScreenState();
 }
 
-class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
+class _StatementImportScreenState extends ConsumerState<StatementImportScreen>
+    with WidgetsBindingObserver {
   final List<StatementPreview> _previews = <StatementPreview>[];
   List<File> _files = <File>[];
   final Map<String, AmountSign> _signOverrides = <String, AmountSign>{};
@@ -51,21 +52,70 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
   StatementImportService get _service =>
       StatementImportService(idGenerator: generateId);
 
+  /// Guards against two collections overlapping, which would read the same
+  /// batch twice and double the preview.
+  bool _collecting = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // A statement shared from Files or Gmail lands in a queue on the
     // platform side. Collect it here rather than making the user find the
     // file again through the picker.
     WidgetsBinding.instance.addPostFrameCallback((_) => _collectShared());
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Sharing more statements while this screen is open should add them,
+  /// not be ignored until it is reopened.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _collectShared();
+  }
+
+  /// Collects everything shared, then builds the preview once.
+  ///
+  /// Sharing several statements at once can deliver them as a burst rather
+  /// than in one go, so the queue is drained until it stays empty. Reading
+  /// after the first batch and ignoring the rest is how this first went
+  /// wrong: files that landed while the previews were being built were
+  /// left in the queue with nothing to come back for them.
   Future<void> _collectShared() async {
-    final shared = await const SharedStatements().drain();
-    if (!mounted || shared.isEmpty) return;
-    _files = shared.take(_maxFiles).toList();
-    _signOverrides.clear();
-    await _buildPreview();
+    if (_collecting) return;
+    _collecting = true;
+    try {
+      const shared = SharedStatements();
+      final collected = <File>[];
+
+      var batch = await shared.drain();
+      while (batch.isNotEmpty) {
+        collected.addAll(batch);
+        // Long enough for the tail of a burst to land, short enough not to
+        // be felt when a single file was shared.
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        batch = await shared.drain();
+      }
+      if (!mounted || collected.isEmpty) return;
+
+      // Added to whatever is already staged rather than replacing it: a
+      // second share is more statements, not a different set.
+      final paths = _files.map((file) => file.path).toSet();
+      _files = <File>[
+        ..._files,
+        for (final file in collected)
+          if (paths.add(file.path)) file,
+      ].take(_maxFiles).toList();
+      _signOverrides.clear();
+      await _buildPreview();
+    } finally {
+      _collecting = false;
+    }
   }
 
   Future<void> _pickFile() async {
@@ -296,7 +346,7 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'Import up to 6 statements together',
+                  'Import up to $_maxFiles statements together',
                   style: theme.textTheme.titleMedium,
                 ),
                 const SizedBox(height: 8),
