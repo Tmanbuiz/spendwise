@@ -25,6 +25,37 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <!-- Open a statement straight from Files, Gmail or a bank app.
+                 Previously the only way a statement could reach the app was
+                 through its own file picker, which meant leaving whatever
+                 app the download had just landed in. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:mimeType="application/pdf"/>
+                <data android:mimeType="text/csv"/>
+                <data android:mimeType="text/comma-separated-values"/>
+            </intent-filter>
+
+            <!-- Share sheet, one file or several. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="application/pdf"/>
+                <data android:mimeType="text/csv"/>
+                <data android:mimeType="text/comma-separated-values"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="application/pdf"/>
+                <data android:mimeType="text/csv"/>
+                <data android:mimeType="text/comma-separated-values"/>
+            </intent-filter>
         </activity>
         <!--
             Reads bank notifications so spending can be tracked automatically.
