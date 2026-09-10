@@ -26,6 +26,24 @@ enum SpendCategory {
   /// among the largest a household pays.
   insurance('insurance', 'Insurance'),
 
+  /// Tuition, registration and application fees.
+  ///
+  /// Universities charge in a handful of large, irregular amounts rather than
+  /// the steady rhythm the other categories assume, so folding them into
+  /// Shopping or Health both misstates those and hides the education spend
+  /// itself — which for a household applying to schools is one of the larger
+  /// lines of the year.
+  education('education', 'Education'),
+
+  /// What the bank charges for holding the money.
+  ///
+  /// Service charges, overdraft and cash-advance fees are real money leaving,
+  /// so they count as spending — but they are worth seeing apart from it,
+  /// because unlike groceries they are usually avoidable. Mixed into Other
+  /// they are invisible; on their own they are an argument for changing
+  /// account plan.
+  bankFees('bank_fees', 'Bank fees'),
+
   other('other', 'Other');
 
   const SpendCategory(this.slug, this.displayName);

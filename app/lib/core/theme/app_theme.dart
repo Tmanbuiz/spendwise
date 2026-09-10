@@ -185,6 +185,12 @@ abstract final class AppTheme {
       // stay separable where they are likely to sit side by side on the donut.
       case SpendCategory.insurance:
         return const Color(0xFF4F46E5);
+      case SpendCategory.education:
+        return const Color(0xFF0369A1);
+      // Deliberately drab. Bank fees are not a part of life to celebrate on a
+      // chart, and a muted amber reads as a warning without shouting.
+      case SpendCategory.bankFees:
+        return const Color(0xFFA16207);
       case SpendCategory.other:
         return const Color(0xFF64748B);
     }
@@ -216,6 +222,10 @@ abstract final class AppTheme {
         return Icons.movie_outlined;
       case SpendCategory.insurance:
         return Icons.shield_outlined;
+      case SpendCategory.education:
+        return Icons.school_outlined;
+      case SpendCategory.bankFees:
+        return Icons.account_balance_outlined;
       case SpendCategory.other:
         return Icons.category_outlined;
     }

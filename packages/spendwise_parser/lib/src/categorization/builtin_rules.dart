@@ -37,6 +37,42 @@ abstract final class BuiltInRules {
     ..._health,
     ..._entertainment,
     ..._insurance,
+    ..._education,
+    ..._bankFees,
+  ];
+
+  /// Tuition, registration and application fees.
+  ///
+  /// Matched on what the institution calls the charge rather than on school
+  /// names, because there are thousands of those and a registrar's line reads
+  /// the same everywhere: `UNB REGISTRAR`, `MEMORIAL U-STUDENT REG`,
+  /// `SMU - ADMISSIONS`.
+  static final List<MerchantRule> _education = <MerchantRule>[
+    for (final name in <String>[
+      'UNIVERSITY', 'TUITION', 'REGISTRAR', 'ADMISSIONS', 'STUDENT REG',
+      'STUDENT FEES', 'SCHOOL BOARD', 'POLYTECHNIC', 'SCHOLARSHIP',
+    ])
+      _r(name, SpendCategory.education),
+  ];
+
+  /// What the bank charges for holding the money.
+  ///
+  /// Written narrowly on purpose. `CASH ADVANCE/AVANCE DE FONDS` is the
+  /// advance itself — the customer's own credit handed over as cash, not a
+  /// charge — so a bare `CASH ADV` would file it as a fee. Only the wording
+  /// that names a fee is matched.
+  ///
+  /// `SERVICE CHARGE` deliberately also catches `SERVICE CHARGE DISCOUNT` and
+  /// `SERVICE CHARGE REWARDS`, which are rebates: they belong beside the
+  /// charges they offset, and the event type already keeps them out of
+  /// spending totals.
+  static final List<MerchantRule> _bankFees = <MerchantRule>[
+    for (final name in <String>[
+      'SERVICE CHARGE', 'OVERDRAFT FEE', 'OVERDRAFT INTEREST',
+      'OVERLIMIT FEE', 'CONV CHQ FEE', 'NSF FEE', 'MONTHLY PLAN FEE',
+      'ANNUAL FEE', 'RECORD KEEPING', 'DISHONOURED', 'STOP PAYMENT',
+    ])
+      _r(name, SpendCategory.bankFees),
   ];
 
   static final List<MerchantRule> _groceries = <MerchantRule>[
@@ -93,6 +129,12 @@ abstract final class BuiltInRules {
     // Whole-word only: see [_word]. As a substring this matched every phone
     // bill containing "Mobile".
     _word('MOBIL', SpendCategory.gas),
+
+    // Atlantic convenience-and-fuel chains, absent from a list that was
+    // written around Ontario brands.
+    _r('KWIKWAY', SpendCategory.gas),
+    _r('NEEDS CONVENIENCE', SpendCategory.gas),
+    _r('ON THE RUN', SpendCategory.gas),
   ];
 
   static final List<MerchantRule> _transportation = <MerchantRule>[
@@ -103,6 +145,15 @@ abstract final class BuiltInRules {
       'AIR CANADA', 'WESTJET', 'PORTER AIRLINES', 'FLAIR AIRLINES',
       'ENTERPRISE RENT', 'HERTZ', 'AVIS', 'BUDGET RENT', 'COMMUNAUTO',
       'ZIPCAR', '407 ETR', 'BIXI', 'CAR WASH', 'AUTO SERVICE',
+
+      // Regional rideshare. Uber and Lyft do not cover much of Atlantic
+      // Canada and the Prairies, where URide and Kabu carry the same trips.
+      'URIDE', 'KABU RIDE',
+
+      // Dealerships: servicing, parts and payments all arrive under the
+      // marque, which is distinctive enough to match on its own.
+      'MITSUBISHI', 'NISSAN', 'TOYOTA', 'HONDA CANADA', 'HYUNDAI', 'KIA ',
+      'SUBARU', 'VOLKSWAGEN', 'MAZDA', 'CHEVROLET', 'DEALERSHIP',
     ])
       _r(name, SpendCategory.transportation),
   ];
@@ -124,6 +175,10 @@ abstract final class BuiltInRules {
       'VALUE VILLAGE', 'GOODWILL', 'TALIZE', 'SALVATION ARMY THRIFT',
     ])
       _r(name, SpendCategory.shopping),
+
+    // Apple's Atlantic reseller. Whole-word only: as a substring `JUMP` would
+    // also match Canadian Tire Jumpstart and anything else that jumps.
+    _word('JUMP', SpendCategory.shopping),
   ];
 
   /// Power, gas and water.

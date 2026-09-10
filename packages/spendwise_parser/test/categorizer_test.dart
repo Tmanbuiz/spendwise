@@ -381,4 +381,64 @@ void main() {
       expect(of('GIANT TIGER'), SpendCategory.shopping);
     });
   });
+
+  group('education and bank fees', () {
+    final categorizer = Categorizer();
+
+    SpendCategory of(String merchant) =>
+        categorizer.categoryFor(MerchantExtractor.normalize(merchant) ?? '');
+
+    test('registrars and admissions offices are education', () {
+      // Strings exactly as the statements print them.
+      const schools = <String>[
+        'UNB REGISTRAR FREDERICTON NB',
+        "MEMORIAL U-STUDENT REG ST-JOHN'S NL",
+        'SMU - ADMISSIONS ONLINE HALIFAX NS',
+        'UNIVERSITY OF TORONTO',
+      ];
+      for (final merchant in schools) {
+        expect(of(merchant), SpendCategory.education, reason: merchant);
+      }
+    });
+
+    test('bank charges are bank fees', () {
+      const fees = <String>[
+        'SERVICE CHARGE CAPPED MONTHLY FEE\$16.95 RECORD-KEEPING N/A',
+        'OVERDRAFT FEE',
+        'OVERDRAFT INTEREST CHARGE',
+        'OVERLIMIT FEE',
+        'CASH ADV/BT/CONV CHQ FEE',
+      ];
+      for (final merchant in fees) {
+        expect(of(merchant), SpendCategory.bankFees, reason: merchant);
+      }
+    });
+
+    test('a cash advance itself is not filed as a fee', () {
+      // The advance is the customer's own credit paid out as cash. Only the
+      // charge for taking it is a fee — a bare "CASH ADV" pattern would have
+      // swept the advance up too.
+      expect(of('CASH ADVANCE/AVANCE DE FONDS'),
+          isNot(SpendCategory.bankFees));
+    });
+
+    test('service charge rebates sit beside the charges they offset', () {
+      expect(of('SERVICE CHARGE DISCOUNT'), SpendCategory.bankFees);
+      expect(of('SERVICE CHARGE REWARDS'), SpendCategory.bankFees);
+    });
+
+    test('regional rideshare, dealerships and fuel chains', () {
+      expect(of('URIDE THUNDER BAY NON'), SpendCategory.transportation);
+      expect(of('FREDERICTON MITSUBISHI FREDERICTON NB'),
+          SpendCategory.transportation);
+      expect(of('FREDERICTON NISSAN FREDERICTON NB'),
+          SpendCategory.transportation);
+      expect(of('KWIKWAY #109930 FREDERICTON NB'), SpendCategory.gas);
+    });
+
+    test('new categories round-trip through their slugs', () {
+      expect(SpendCategory.fromSlug('education'), SpendCategory.education);
+      expect(SpendCategory.fromSlug('bank_fees'), SpendCategory.bankFees);
+    });
+  });
 }
