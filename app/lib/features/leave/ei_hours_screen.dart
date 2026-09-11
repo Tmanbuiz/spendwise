@@ -1,11 +1,16 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/formatters.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/ei/ei_dates.dart';
 import '../../data/ei/ei_hours_engine.dart';
 import '../../data/ei/ei_models.dart';
+import '../../data/ei/ei_verification.dart';
 import '../../state/ei_providers.dart';
 import '../../widgets/common.dart';
 import 'ei_editors.dart';
@@ -27,6 +32,7 @@ class _EiHoursScreenState extends ConsumerState<EiHoursScreen> {
   Widget build(BuildContext context) {
     final tracker = ref.watch(eiTrackerProvider);
     final estimate = ref.watch(eiEstimateProvider);
+    final verification = ref.watch(eiVerificationProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -57,7 +63,7 @@ class _EiHoursScreenState extends ConsumerState<EiHoursScreen> {
         ),
         data: (data) => estimate == null
             ? const SizedBox.shrink()
-            : _content(context, data, estimate),
+            : _content(context, data, estimate, verification),
       ),
     );
   }
@@ -66,6 +72,7 @@ class _EiHoursScreenState extends ConsumerState<EiHoursScreen> {
     BuildContext context,
     EiTrackerData data,
     EiHoursEstimate estimate,
+    EiVerification? verification,
   ) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 104),
@@ -79,6 +86,11 @@ class _EiHoursScreenState extends ConsumerState<EiHoursScreen> {
         EiResultSummary(estimate: estimate),
         const SizedBox(height: 12),
         EiNotices(estimate: estimate),
+        if (verification != null && data.jobs.isNotEmpty) ...<Widget>[
+          const SectionHeader(title: 'Accuracy check'),
+          _AccuracyCard(verification: verification),
+          const SizedBox(height: 16),
+        ],
         const SectionHeader(title: 'Your dates'),
         _DatesCard(data: data),
         const SizedBox(height: 16),
@@ -109,7 +121,7 @@ class _EiHoursScreenState extends ConsumerState<EiHoursScreen> {
             label: const Text('Add hours'),
           ),
         ),
-        _entriesCard(context, data, estimate),
+        _entriesCard(context, data, estimate, verification),
         const SizedBox(height: 16),
         SectionHeader(
           title: 'Gaps and unpaid leave',
@@ -164,6 +176,7 @@ class _EiHoursScreenState extends ConsumerState<EiHoursScreen> {
     BuildContext context,
     EiTrackerData data,
     EiHoursEstimate estimate,
+    EiVerification? verification,
   ) {
     final records = <EiHoursRecord>[...data.records]
       ..sort((a, b) => b.periodStart.compareTo(a.periodStart));
@@ -187,7 +200,12 @@ class _EiHoursScreenState extends ConsumerState<EiHoursScreen> {
                 '${EiFmt.hours(record.insurableHours(estimate.rules))} h · '
                 '${data.jobById(record.jobId)?.employerName ?? 'Unknown job'}',
               ),
-              subtitle: Text(_entryDetail(record)),
+              subtitle: Text(
+                <String>[
+                  _entryDetail(record),
+                  ?_checkSummary(verification?.checkFor(record.id)),
+                ].join('\n'),
+              ),
               onTap: () => showEiHoursEditor(context, ref, record: record),
               trailing: IconButton(
                 tooltip: 'Remove',
@@ -219,6 +237,14 @@ class _EiHoursScreenState extends ConsumerState<EiHoursScreen> {
     );
   }
 
+  static String? _checkSummary(EiStubCheck? check) {
+    if (check == null) return null;
+    if (check.hasProblem) return '⚠ ${eiProblemText(check)}';
+    return check.match == EiDepositMatch.matched
+        ? '✓ Matched to a bank deposit'
+        : 'Add the net pay to check it against your bank';
+  }
+
   static String _entryDetail(EiHoursRecord record) {
     final parts = <String>[
       '${EiFmt.shortDate(record.periodStart)} to '
@@ -230,6 +256,210 @@ class _EiHoursScreenState extends ConsumerState<EiHoursScreen> {
         '${EiFmt.hours(record.paidLeaveHours)} h paid leave',
     ];
     return parts.join(' · ');
+  }
+}
+
+/// What is wrong with a pay stub, in a line.
+String eiProblemText(EiStubCheck check) {
+  final net = check.record.payStub?.netPayCents;
+  final parts = <String>[
+    if (check.match == EiDepositMatch.notFound && net != null)
+      'No bank deposit of ${Fmt.money(net)} found',
+    if (check.netPayMismatchCents case final difference?)
+      'Net pay is ${Fmt.money(difference.abs())} '
+          '${difference > 0 ? 'more' : 'less'} than gross less deductions',
+    if (check.eiPremiumMissing) 'No EI premium deducted',
+  ];
+  return parts.join(' · ');
+}
+
+/// How much of the estimate rests on checked pay stubs, and what to fix.
+class _AccuracyCard extends ConsumerWidget {
+  const _AccuracyCard({required this.verification});
+
+  final EiVerification verification;
+
+  static Color colorFor(ThemeData theme, EiEvidence evidence) {
+    switch (evidence) {
+      case EiEvidence.verified:
+        return AppTheme.positive;
+      case EiEvidence.payStub:
+        return theme.colorScheme.primary;
+      case EiEvidence.entered:
+        return AppTheme.warning;
+      case EiEvidence.estimated:
+        return theme.colorScheme.outlineVariant;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final v = verification;
+    final total = v.totalHours;
+    final problems = v.problems;
+    final unmatched = v.unmatchedDeposits;
+
+    return SectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            total <= 0
+                ? 'No hours counted yet'
+                : '${EiFmt.hoursDown(total)} hours, by what backs them',
+            style: theme.textTheme.titleSmall,
+          ),
+          const SizedBox(height: 10),
+          if (total > 0)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: SizedBox(
+                height: 10,
+                child: Row(
+                  children: <Widget>[
+                    for (final evidence in EiEvidence.values)
+                      if (v.hoursFor(evidence) > 0)
+                        Expanded(
+                          flex: math.max(1, (v.hoursFor(evidence) * 100).round()),
+                          child: ColoredBox(color: colorFor(theme, evidence)),
+                        ),
+                  ],
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          for (final evidence in EiEvidence.values)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: <Widget>[
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: colorFor(theme, evidence),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      evidence.label,
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  ),
+                  Text(
+                    '${EiFmt.hoursDown(v.hoursFor(evidence))} h',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 6),
+          Text(
+            total <= 0
+                ? 'Add pay stubs to build hours SpendWise can check.'
+                : v.documentedFraction >= 0.9
+                ? 'Nearly all of your hours come from pay stubs.'
+                : 'Add a pay stub for each pay period to replace estimates '
+                      'with hours SpendWise can check.',
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
+          if (problems.isNotEmpty || unmatched.isNotEmpty) ...<Widget>[
+            const Divider(height: 24),
+            for (final check in problems)
+              _IssueRow(
+                icon: Icons.error_outline_rounded,
+                color: AppTheme.warning,
+                title:
+                    'Pay stub for ${EiFmt.shortDate(check.record.periodStart)} '
+                    'to ${EiFmt.date(check.record.periodEnd)}',
+                message: eiProblemText(check),
+                actionLabel: 'Fix',
+                onAction: () =>
+                    showEiHoursEditor(context, ref, record: check.record),
+              ),
+            for (final item in unmatched.take(6))
+              _IssueRow(
+                icon: Icons.receipt_long_outlined,
+                color: theme.colorScheme.primary,
+                title:
+                    'Pay of ${Fmt.money(item.deposit.amountCents)} on '
+                    '${EiFmt.date(item.deposit.occurredAt)}',
+                message:
+                    'No pay stub entered for this deposit from '
+                    '${item.job.employerName}.',
+                actionLabel: 'Add stub',
+                onAction: () => showEiHoursEditor(
+                  context,
+                  ref,
+                  method: EiHoursSource.payStub,
+                  jobId: item.job.id,
+                  stubPrefill: EiPayStubDetails(
+                    payDate: EiDates.day(item.deposit.occurredAt),
+                    netPayCents: item.deposit.amountCents,
+                  ),
+                ),
+              ),
+            if (unmatched.length > 6)
+              Text(
+                'And ${unmatched.length - 6} more pay deposits without a stub.',
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _IssueRow extends StatelessWidget {
+  const _IssueRow({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String message;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(title, style: theme.textTheme.titleSmall),
+                Text(
+                  message,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(onPressed: onAction, child: Text(actionLabel)),
+        ],
+      ),
+    );
   }
 }
 

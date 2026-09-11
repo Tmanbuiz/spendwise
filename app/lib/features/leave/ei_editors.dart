@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/formatters.dart';
 import '../../core/router/app_router.dart';
+import '../../core/theme/app_theme.dart';
+import '../../data/ei/ei_config.dart';
 import '../../data/ei/ei_dates.dart';
 import '../../data/ei/ei_models.dart';
 import '../../data/ei/ei_payroll_detection.dart';
+import '../../data/ei/ei_verification.dart';
+import '../../data/models/app_transaction.dart';
 import '../../data/models/financial_document.dart';
 import '../../state/ei_providers.dart';
 import '../../state/providers.dart';
@@ -95,11 +100,15 @@ Future<void> showEiJobEditor(
   await saveEiChange(context, ref, (data) => data.upsertJob(result));
 }
 
+/// Opens the hours form. [jobId] and [stubPrefill] start a new pay stub
+/// entry from what is already known, such as a deposit with no stub.
 Future<void> showEiHoursEditor(
   BuildContext context,
   WidgetRef ref, {
   EiHoursRecord? record,
   EiHoursSource? method,
+  String? jobId,
+  EiPayStubDetails? stubPrefill,
 }) async {
   final data = await ref.read(eiTrackerProvider.future);
   if (!context.mounted) return;
@@ -112,7 +121,13 @@ Future<void> showEiHoursEditor(
   }
   final result = await _showSheet<EiHoursRecord>(
     context,
-    _HoursEditor(jobs: data.jobs, record: record, method: method),
+    _HoursEditor(
+      jobs: data.jobs,
+      record: record,
+      method: method,
+      jobId: jobId,
+      stubPrefill: stubPrefill,
+    ),
   );
   if (result == null || !context.mounted) return;
   await saveEiChange(context, ref, (d) => d.upsertRecord(result));
@@ -269,6 +284,218 @@ class _Hint extends StatelessWidget {
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.onSurfaceVariant,
         ),
+      ),
+    );
+  }
+}
+
+int? _parseCents(String text) {
+  final value = text.trim().replaceAll(RegExp(r'[$,\s]'), '');
+  if (value.isEmpty) return null;
+  final parsed = double.tryParse(value);
+  return parsed == null ? null : (parsed * 100).round();
+}
+
+String _centsText(int? cents) =>
+    cents == null ? '' : (cents / 100).toStringAsFixed(2);
+
+final RegExp _moneyPattern = RegExp(
+  r'^\$?\s*(\d{1,3}(,\d{3})+|\d+)?(\.\d{1,2})?$',
+);
+
+String? _moneyValidator(String? text) {
+  final value = text?.trim() ?? '';
+  if (value.isEmpty) return null;
+  return _moneyPattern.hasMatch(value) && RegExp(r'\d').hasMatch(value)
+      ? null
+      : 'Enter an amount like 1234.56';
+}
+
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: 20, bottom: 8),
+      child: Text(
+        text,
+        style: theme.textTheme.titleSmall?.copyWith(
+          color: theme.colorScheme.primary,
+        ),
+      ),
+    );
+  }
+}
+
+class _MoneyField extends StatelessWidget {
+  const _MoneyField({
+    required this.controller,
+    required this.label,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      decoration: InputDecoration(labelText: label, prefixText: r'$ '),
+      keyboardType: _decimalKeyboard,
+      validator: _moneyValidator,
+      onChanged: (_) => onChanged(),
+    );
+  }
+}
+
+/// Checks on the stub being entered, as it is typed: do its numbers add up,
+/// was an EI premium taken, and did its net pay reach the bank.
+class _StubCheck extends ConsumerWidget {
+  const _StubCheck({
+    required this.details,
+    required this.draft,
+    required this.job,
+  });
+
+  final EiPayStubDetails details;
+
+  /// The entry as typed so far; null until it has a date to search from.
+  final EiHoursRecord? draft;
+  final EiJob job;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    const settings = EiConfig.verification;
+    final lines = <(IconData, Color, String)>[];
+
+    if (details.isEmpty) {
+      lines.add((
+        Icons.fact_check_outlined,
+        muted,
+        'Enter the pay figures and SpendWise checks the stub as you type.',
+      ));
+    } else {
+      final calculated = details.calculatedNetCents;
+      final net = details.netPayCents;
+      if (calculated != null && net != null) {
+        if ((net - calculated).abs() <= settings.netPayToleranceCents) {
+          lines.add((
+            Icons.check_circle_outline_rounded,
+            AppTheme.positive,
+            'Gross pay less deductions is ${Fmt.money(calculated)}, which '
+                'matches the net pay.',
+          ));
+        } else {
+          lines.add((
+            Icons.error_outline_rounded,
+            AppTheme.warning,
+            'Gross pay less deductions is ${Fmt.money(calculated)}, but the '
+                'net pay is ${Fmt.money(net)}. A deduction may be missing or '
+                'mistyped.',
+          ));
+        }
+      } else if (calculated != null) {
+        lines.add((
+          Icons.calculate_outlined,
+          muted,
+          'Gross pay less deductions: ${Fmt.money(calculated)}. Enter the net '
+              'pay to compare.',
+        ));
+      }
+
+      final premium = details.eiPremiumCents;
+      if (premium != null && premium > 0) {
+        lines.add((
+          Icons.check_circle_outline_rounded,
+          AppTheme.positive,
+          'An EI premium was deducted, a sign this is insurable employment.',
+        ));
+      } else if (premium == 0 && (details.grossPayCents ?? 0) > 0) {
+        lines.add((
+          Icons.error_outline_rounded,
+          AppTheme.warning,
+          'No EI premium was deducted. These hours may not be insurable, or '
+              'this year\'s maximum premium may already have been reached.',
+        ));
+      }
+
+      final record = draft;
+      if (net != null && record != null) {
+        final transactions =
+            ref.watch(transactionsProvider).value ?? const <AppTransaction>[];
+        final verification = ref.watch(eiVerificationProvider);
+        final taken = <String>{
+          for (final check in verification?.checks ?? const <EiStubCheck>[])
+            if (check.record.id != record.id && check.deposit != null)
+              check.deposit!.id,
+        };
+        final deposit = EiVerifier.findDeposit(
+          record: record,
+          transactions: transactions,
+          job: job,
+          exclude: taken,
+        );
+        final payDate = details.payDate;
+        if (deposit != null) {
+          final from = deposit.merchant == null
+              ? ''
+              : ' from ${deposit.merchant}';
+          lines.add((
+            Icons.account_balance_outlined,
+            AppTheme.positive,
+            'Deposit found: ${Fmt.money(net)} on '
+                '${EiFmt.date(deposit.occurredAt)}$from.',
+          ));
+        } else {
+          final where = payDate == null
+              ? 'in the ${settings.depositSearchDaysWithoutPayDate} days after '
+                    'the period'
+              : 'near ${EiFmt.date(payDate)}';
+          lines.add((
+            Icons.search_off_rounded,
+            AppTheme.warning,
+            'No deposit of ${Fmt.money(net)} found $where. Import the bank '
+                'statement that covers it, or check the amount.',
+          ));
+        }
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(
+          alpha: 0.5,
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('Stub check', style: theme.textTheme.titleSmall),
+          for (final (icon, color, text) in lines)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Icon(icon, size: 18, color: color),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(text, style: theme.textTheme.bodySmall),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -526,11 +753,19 @@ class _JobEditorState extends ConsumerState<_JobEditor> {
 }
 
 class _HoursEditor extends ConsumerStatefulWidget {
-  const _HoursEditor({required this.jobs, this.record, this.method});
+  const _HoursEditor({
+    required this.jobs,
+    this.record,
+    this.method,
+    this.jobId,
+    this.stubPrefill,
+  });
 
   final List<EiJob> jobs;
   final EiHoursRecord? record;
   final EiHoursSource? method;
+  final String? jobId;
+  final EiPayStubDetails? stubPrefill;
 
   @override
   ConsumerState<_HoursEditor> createState() => _HoursEditorState();
@@ -538,20 +773,50 @@ class _HoursEditor extends ConsumerStatefulWidget {
 
 class _HoursEditorState extends ConsumerState<_HoursEditor> {
   final _form = GlobalKey<FormState>();
+
+  // A pay stub is the default because it is the entry SpendWise can check.
   late EiHoursSource _source =
-      widget.record?.source ?? widget.method ?? EiHoursSource.weekly;
-  late String _jobId = widget.record?.jobId ?? widget.jobs.first.id;
+      widget.record?.source ?? widget.method ?? EiHoursSource.payStub;
+  late String _jobId =
+      widget.record?.jobId ??
+      (widget.jobs.any((job) => job.id == widget.jobId)
+          ? widget.jobId!
+          : widget.jobs.first.id);
   late DateTime? _start = widget.record?.periodStart ?? _defaultStart();
   late DateTime? _end =
       widget.record?.periodEnd ?? (_start == null ? null : _endFor(_start!));
+  late final EiPayStubDetails? _initialStub =
+      widget.record?.payStub ?? widget.stubPrefill;
+  late DateTime? _payDate = _initialStub?.payDate;
   late final _worked = TextEditingController(
     text: _numberText(widget.record?.hoursWorked),
+  );
+  late final _overtime = TextEditingController(
+    text: _numberText(widget.record?.overtimeHours),
   );
   late final _vacation = TextEditingController(
     text: _numberText(widget.record?.vacationHours),
   );
   late final _leave = TextEditingController(
     text: _numberText(widget.record?.paidLeaveHours),
+  );
+  late final _gross = TextEditingController(
+    text: _centsText(_initialStub?.grossPayCents),
+  );
+  late final _tax = TextEditingController(
+    text: _centsText(_initialStub?.incomeTaxCents),
+  );
+  late final _cpp = TextEditingController(
+    text: _centsText(_initialStub?.cppCents),
+  );
+  late final _eiPremium = TextEditingController(
+    text: _centsText(_initialStub?.eiPremiumCents),
+  );
+  late final _otherDeductions = TextEditingController(
+    text: _centsText(_initialStub?.otherDeductionsCents),
+  );
+  late final _net = TextEditingController(
+    text: _centsText(_initialStub?.netPayCents),
   );
   late final _note = TextEditingController(text: widget.record?.note ?? '');
   late String? _documentId = widget.record?.documentId;
@@ -575,21 +840,61 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
 
   @override
   void dispose() {
-    _worked.dispose();
-    _vacation.dispose();
-    _leave.dispose();
-    _note.dispose();
+    for (final controller in <TextEditingController>[
+      _worked,
+      _overtime,
+      _vacation,
+      _leave,
+      _gross,
+      _tax,
+      _cpp,
+      _eiPremium,
+      _otherDeductions,
+      _net,
+      _note,
+    ]) {
+      controller.dispose();
+    }
     super.dispose();
+  }
+
+  EiPayStubDetails _stubDetails() => EiPayStubDetails(
+    payDate: _payDate,
+    grossPayCents: _parseCents(_gross.text),
+    incomeTaxCents: _parseCents(_tax.text),
+    cppCents: _parseCents(_cpp.text),
+    eiPremiumCents: _parseCents(_eiPremium.text),
+    otherDeductionsCents: _parseCents(_otherDeductions.text),
+    netPayCents: _parseCents(_net.text),
+  );
+
+  /// The stub as typed so far, for the live check. It needs a period end or
+  /// a pay date before there is anywhere to look for the deposit.
+  EiHoursRecord? _draft() {
+    final end = _end ?? _payDate;
+    if (end == null) return null;
+    final start = _start;
+    return EiHoursRecord(
+      id: widget.record?.id ?? '',
+      jobId: _jobId,
+      periodStart: start == null || start.isAfter(end) ? end : start,
+      periodEnd: end,
+      hoursWorked: 0,
+      source: EiHoursSource.payStub,
+      payStub: _stubDetails(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final stubs = ref.watch(eiPayStubsProvider);
-    final pattern = _patternFor(
+    final pattern = EiPayrollDetector.forEmployer(
       ref.watch(eiPayrollPatternsProvider),
       _job.employerName,
     );
     final weekly = _source == EiHoursSource.weekly;
+    final isStub = _source == EiHoursSource.payStub;
+    void changed() => setState(() {});
 
     return _SheetBody(
       title: widget.record == null ? 'Add hours' : 'Edit hours',
@@ -602,9 +907,9 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
               showSelectedIcon: false,
               segments: const <ButtonSegment<EiHoursSource>>[
                 ButtonSegment(
-                  value: EiHoursSource.weekly,
-                  label: Text('Week'),
-                  icon: Icon(Icons.view_week_outlined),
+                  value: EiHoursSource.payStub,
+                  label: Text('Pay stub'),
+                  icon: Icon(Icons.receipt_long_outlined),
                 ),
                 ButtonSegment(
                   value: EiHoursSource.payPeriod,
@@ -612,9 +917,9 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
                   icon: Icon(Icons.date_range_outlined),
                 ),
                 ButtonSegment(
-                  value: EiHoursSource.payStub,
-                  label: Text('Pay stub'),
-                  icon: Icon(Icons.receipt_long_outlined),
+                  value: EiHoursSource.weekly,
+                  label: Text('Week'),
+                  icon: Icon(Icons.view_week_outlined),
                 ),
               ],
               selected: <EiHoursSource>{_source},
@@ -624,6 +929,13 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
                 if (start != null) _end = _endFor(start);
                 if (_source != EiHoursSource.payStub) _documentId = null;
               }),
+            ),
+            _Hint(
+              isStub
+                  ? 'Most accurate: copy the stub line by line, and SpendWise '
+                        'checks it against your bank deposit.'
+                  : 'Quicker, but unchecked. A pay stub lets SpendWise verify '
+                        'the hours.',
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
@@ -649,9 +961,9 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
               }),
             ),
             const SizedBox(height: 12),
-            if (_source == EiHoursSource.payStub) ..._stubPicker(stubs),
-            if (_source == EiHoursSource.payPeriod && pattern != null)
-              ..._payDates(pattern),
+            if (isStub) ..._stubPicker(stubs),
+            if (!weekly && pattern != null) ..._payDates(pattern),
+            if (isStub) const _SectionLabel('Pay period'),
             _DateField(
               label: weekly ? 'Week starting' : 'Period start',
               value: _start,
@@ -676,12 +988,29 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
                 if (picked != null) setState(() => _end = picked);
               },
             ),
+            if (isStub) ...<Widget>[
+              const SizedBox(height: 12),
+              _DateField(
+                label: 'Pay date',
+                value: _payDate,
+                onTap: () async {
+                  final picked = await pickEiDate(
+                    context,
+                    initial: _payDate ?? _end,
+                  );
+                  if (picked != null) setState(() => _payDate = picked);
+                },
+              ),
+            ],
             if (_dateError != null) _ErrorText(_dateError!),
-            const SizedBox(height: 12),
+            if (isStub)
+              const _SectionLabel('Hours')
+            else
+              const SizedBox(height: 12),
             TextFormField(
               controller: _worked,
               decoration: InputDecoration(
-                labelText: 'Hours worked',
+                labelText: isStub ? 'Regular hours' : 'Hours worked',
                 helperText: weekly
                     ? 'Hours worked that week'
                     : 'Hours worked in the whole period',
@@ -695,9 +1024,9 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
               children: <Widget>[
                 Expanded(
                   child: TextFormField(
-                    controller: _vacation,
+                    controller: _overtime,
                     decoration: const InputDecoration(
-                      labelText: 'Vacation hours',
+                      labelText: 'Overtime hours',
                     ),
                     keyboardType: _decimalKeyboard,
                     validator: _hoursValidator(max: 744),
@@ -706,9 +1035,9 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: TextFormField(
-                    controller: _leave,
+                    controller: _vacation,
                     decoration: const InputDecoration(
-                      labelText: 'Paid leave hours',
+                      labelText: 'Vacation hours',
                     ),
                     keyboardType: _decimalKeyboard,
                     validator: _hoursValidator(max: 744),
@@ -716,7 +1045,74 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
                 ),
               ],
             ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _leave,
+              decoration: const InputDecoration(
+                labelText: 'Stat holiday and other paid leave hours',
+              ),
+              keyboardType: _decimalKeyboard,
+              validator: _hoursValidator(max: 744),
+            ),
             const _Hint(EiMessages.paidTimeOff),
+            if (isStub) ...<Widget>[
+              const _SectionLabel('Pay'),
+              _MoneyField(
+                controller: _gross,
+                label: 'Gross pay',
+                onChanged: changed,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: _MoneyField(
+                      controller: _tax,
+                      label: 'Income tax',
+                      onChanged: changed,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _MoneyField(
+                      controller: _cpp,
+                      label: 'CPP or QPP',
+                      onChanged: changed,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: _MoneyField(
+                      controller: _eiPremium,
+                      label: 'EI premium',
+                      onChanged: changed,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _MoneyField(
+                      controller: _otherDeductions,
+                      label: 'Other deductions',
+                      onChanged: changed,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _MoneyField(
+                controller: _net,
+                label: 'Net pay (deposited)',
+                onChanged: changed,
+              ),
+              const SizedBox(height: 12),
+              _StubCheck(details: _stubDetails(), draft: _draft(), job: _job),
+            ],
             const SizedBox(height: 12),
             TextFormField(
               controller: _note,
@@ -792,9 +1188,10 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
 
   List<Widget> _payDates(EiPayrollPattern pattern) {
     final theme = Theme.of(context);
+    final isStub = _source == EiHoursSource.payStub;
     return <Widget>[
       Text(
-        'Recent pay dates from ${pattern.payerName}',
+        'Recent pay from ${pattern.payerName}',
         style: theme.textTheme.labelMedium?.copyWith(
           color: theme.colorScheme.onSurfaceVariant,
         ),
@@ -804,19 +1201,35 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
         spacing: 8,
         runSpacing: 8,
         children: <Widget>[
-          for (final date in pattern.payDates.reversed.take(6))
+          for (final deposit in pattern.deposits.reversed.take(6))
             ActionChip(
-              label: Text(EiFmt.shortDate(date)),
+              label: Text(
+                '${EiFmt.shortDate(deposit.occurredAt)} · '
+                '${Fmt.money(deposit.amountCents)}',
+              ),
               onPressed: () => setState(() {
-                _end = date;
-                _start = _periodEndingOn(date, _job.payFrequency);
+                final day = EiDates.day(deposit.occurredAt);
+                if (isStub) {
+                  _payDate = day;
+                  // Only an empty net pay is filled: overwriting a typed
+                  // figure would hide the very mismatch the check exists for.
+                  if (_net.text.trim().isEmpty) {
+                    _net.text = _centsText(deposit.amountCents);
+                  }
+                } else {
+                  _end = day;
+                  _start = _periodEndingOn(day, _job.payFrequency);
+                }
               }),
             ),
         ],
       ),
-      const _Hint(
-        'A pay period usually ends a few days before payday. Adjust the '
-        'dates to match your pay stub.',
+      _Hint(
+        isStub
+            ? 'Tap the deposit this stub paid to fill in its pay date and net '
+                  'pay.'
+            : 'A pay period usually ends a few days before payday. Adjust the '
+                  'dates to match your pay stub.',
       ),
       const SizedBox(height: 12),
     ];
@@ -847,6 +1260,7 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
     final start = _start;
     final end = _end;
     final worked = _parseHours(_worked.text) ?? 0;
+    final overtime = _parseHours(_overtime.text) ?? 0;
     final vacation = _parseHours(_vacation.text) ?? 0;
     final leave = _parseHours(_leave.text) ?? 0;
     String? error;
@@ -854,13 +1268,14 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
       error = 'Choose the start and end dates';
     } else if (end.isBefore(start)) {
       error = 'The end date must be on or after the start date';
-    } else if (worked + vacation + leave >
+    } else if (worked + overtime + vacation + leave >
         EiDates.inclusiveDays(start, end) * Duration.hoursPerDay) {
       error = 'That is more hours than the period has';
     }
     setState(() => _dateError = error);
     if (!valid || error != null || start == null || end == null) return;
 
+    final stub = _source == EiHoursSource.payStub ? _stubDetails() : null;
     final note = _note.text.trim();
     Navigator.pop(
       context,
@@ -870,28 +1285,16 @@ class _HoursEditorState extends ConsumerState<_HoursEditor> {
         periodStart: start,
         periodEnd: end,
         hoursWorked: worked,
+        overtimeHours: overtime,
         vacationHours: vacation,
         paidLeaveHours: leave,
         source: _source,
+        payStub: stub == null || stub.isEmpty ? null : stub,
         documentId: _source == EiHoursSource.payStub ? _documentId : null,
         note: note.isEmpty ? null : note,
       ),
     );
   }
-}
-
-/// The payroll pattern whose payer matches [employer], if any.
-EiPayrollPattern? _patternFor(
-  List<EiPayrollPattern> patterns,
-  String employer,
-) {
-  final name = employer.trim().toUpperCase();
-  if (name.isEmpty) return null;
-  for (final pattern in patterns) {
-    final payer = pattern.payerName.toUpperCase();
-    if (payer.contains(name) || name.contains(payer)) return pattern;
-  }
-  return null;
 }
 
 /// The start of a pay period that ends on [end].

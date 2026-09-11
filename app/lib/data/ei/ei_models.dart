@@ -249,6 +249,93 @@ class EiJob {
   }
 }
 
+/// The money printed on a pay stub, in cents.
+///
+/// Every field is optional because stubs differ. The checks use whatever is
+/// there: gross less deductions against net pay, whether an EI premium was
+/// taken, and whether the net pay reached the bank.
+class EiPayStubDetails {
+  const EiPayStubDetails({
+    this.payDate,
+    this.grossPayCents,
+    this.incomeTaxCents,
+    this.cppCents,
+    this.eiPremiumCents,
+    this.otherDeductionsCents,
+    this.netPayCents,
+  });
+
+  /// The day the pay was deposited, as printed on the stub.
+  final DateTime? payDate;
+  final int? grossPayCents;
+
+  /// Federal and provincial income tax together.
+  final int? incomeTaxCents;
+
+  /// CPP or QPP contributions.
+  final int? cppCents;
+
+  /// The EI premium deducted. A premium is the clearest sign on a stub that
+  /// the hours are insurable.
+  final int? eiPremiumCents;
+
+  /// Everything else: union dues, benefits, pension, garnishments.
+  final int? otherDeductionsCents;
+  final int? netPayCents;
+
+  bool get isEmpty =>
+      payDate == null &&
+      grossPayCents == null &&
+      incomeTaxCents == null &&
+      cppCents == null &&
+      eiPremiumCents == null &&
+      otherDeductionsCents == null &&
+      netPayCents == null;
+
+  int get totalDeductionsCents =>
+      (incomeTaxCents ?? 0) +
+      (cppCents ?? 0) +
+      (eiPremiumCents ?? 0) +
+      (otherDeductionsCents ?? 0);
+
+  /// Gross pay less every deduction entered, or null without a gross figure.
+  int? get calculatedNetCents {
+    final gross = grossPayCents;
+    return gross == null ? null : gross - totalDeductionsCents;
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'pay_date': payDate == null ? null : EiDates.encode(payDate!),
+    'gross_pay_cents': grossPayCents,
+    'income_tax_cents': incomeTaxCents,
+    'cpp_cents': cppCents,
+    'ei_premium_cents': eiPremiumCents,
+    'other_deductions_cents': otherDeductionsCents,
+    'net_pay_cents': netPayCents,
+  };
+
+  static EiPayStubDetails fromJson(Map<String, Object?> json) {
+    int? cents(String key) {
+      final value = json[key];
+      if (value == null) return null;
+      if (value is! int || value < 0) {
+        throw FormatException('Invalid pay stub $key');
+      }
+      return value;
+    }
+
+    return EiPayStubDetails(
+      payDate: EiDates.decode(json['pay_date']),
+      grossPayCents: cents('gross_pay_cents'),
+      incomeTaxCents: cents('income_tax_cents'),
+      cppCents: cents('cpp_cents'),
+      eiPremiumCents: cents('ei_premium_cents'),
+      otherDeductionsCents: cents('other_deductions_cents'),
+      netPayCents: cents('net_pay_cents'),
+    );
+  }
+}
+
 /// Hours worked for one job over one stretch of days: a week, a pay period,
 /// or the period printed on a pay stub.
 class EiHoursRecord {
@@ -258,9 +345,11 @@ class EiHoursRecord {
     required this.periodStart,
     required this.periodEnd,
     required this.hoursWorked,
+    this.overtimeHours = 0,
     this.vacationHours = 0,
     this.paidLeaveHours = 0,
     this.source = EiHoursSource.weekly,
+    this.payStub,
     this.documentId,
     this.note,
   });
@@ -269,7 +358,12 @@ class EiHoursRecord {
   final String jobId;
   final DateTime periodStart;
   final DateTime periodEnd;
+
+  /// Regular hours worked in the period.
   final double hoursWorked;
+
+  /// Overtime hours worked, insurable like any other hour worked.
+  final double overtimeHours;
 
   /// Paid vacation taken in the period.
   final double vacationHours;
@@ -279,16 +373,22 @@ class EiHoursRecord {
 
   final EiHoursSource source;
 
+  /// Pay, deductions and pay date copied from the stub.
+  final EiPayStubDetails? payStub;
+
   /// The Financial Vault pay stub the hours were read from, if any.
   final String? documentId;
   final String? note;
 
   int get days => EiDates.inclusiveDays(periodStart, periodEnd);
 
+  bool get hasPayStubDetails => payStub != null && !payStub!.isEmpty;
+
   /// Hours this entry contributes under [rules]. Paid time off counts only
   /// where the rules say it does.
   double insurableHours(EiRules rules) =>
       hoursWorked +
+      overtimeHours +
       (rules.countPaidVacationHours ? vacationHours : 0) +
       (rules.countPaidLeaveHours ? paidLeaveHours : 0);
 
@@ -305,9 +405,11 @@ class EiHoursRecord {
     'period_start': EiDates.encode(periodStart),
     'period_end': EiDates.encode(periodEnd),
     'hours_worked': hoursWorked,
+    'overtime_hours': overtimeHours,
     'vacation_hours': vacationHours,
     'paid_leave_hours': paidLeaveHours,
     'source': source.name,
+    'pay_stub': payStub?.toJson(),
     'document_id': documentId,
     'note': note,
   };
@@ -318,8 +420,10 @@ class EiHoursRecord {
     final start = EiDates.decode(json['period_start']);
     final end = EiDates.decode(json['period_end']);
     final worked = _number(json['hours_worked']);
+    final overtime = _number(json['overtime_hours']) ?? 0;
     final vacation = _number(json['vacation_hours']) ?? 0;
     final leave = _number(json['paid_leave_hours']) ?? 0;
+    final stub = json['pay_stub'];
     if (id is! String ||
         id.isEmpty ||
         jobId is! String ||
@@ -329,10 +433,12 @@ class EiHoursRecord {
         end.isBefore(start) ||
         worked == null ||
         worked < 0 ||
+        overtime < 0 ||
         vacation < 0 ||
         leave < 0 ||
-        worked + vacation + leave >
-            EiDates.inclusiveDays(start, end) * Duration.hoursPerDay) {
+        worked + overtime + vacation + leave >
+            EiDates.inclusiveDays(start, end) * Duration.hoursPerDay ||
+        (stub != null && stub is! Map)) {
       throw const FormatException('Invalid EI hours entry');
     }
     return EiHoursRecord(
@@ -341,9 +447,13 @@ class EiHoursRecord {
       periodStart: start,
       periodEnd: end,
       hoursWorked: worked,
+      overtimeHours: overtime,
       vacationHours: vacation,
       paidLeaveHours: leave,
       source: EiHoursSource.fromName(json['source']),
+      payStub: stub is Map
+          ? EiPayStubDetails.fromJson(Map<String, Object?>.from(stub))
+          : null,
       documentId: json['document_id'] as String?,
       note: json['note'] as String?,
     );

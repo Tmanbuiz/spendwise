@@ -261,11 +261,26 @@ class EiHoursEngine {
         ),
     ];
 
+    // What each entry contributes to the current total, so the hours can be
+    // attributed to the evidence behind them.
+    final recordHours = <String, double>{
+      for (final record in data.records)
+        if (insurableIds.contains(record.jobId))
+          record.id: _Ledger.recordHoursWithin(
+            record,
+            data.jobById(record.jobId)!,
+            rules,
+            period.start,
+            countedEnd,
+          ),
+    };
+
     return EiHoursEstimate._(
       this,
       data,
       ledger,
       previous,
+      recordHours: recordHours,
       asOf: asOf,
       claimStart: claim,
       period: period,
@@ -294,6 +309,7 @@ class EiHoursEstimate {
     this._data,
     this._ledger,
     this._previousClaimStart, {
+    required this.recordHours,
     required this.asOf,
     required this.claimStart,
     required this.period,
@@ -310,6 +326,9 @@ class EiHoursEstimate {
 
   final DateTime asOf;
   final DateTime? claimStart;
+
+  /// Hours each entry contributes to [currentHours], by entry id.
+  final Map<String, double> recordHours;
 
   /// The qualifying period for the planned claim. When no claim date is set
   /// this is the period for a claim starting tomorrow, and
@@ -587,22 +606,12 @@ class _Ledger {
         final total = record.insurableHours(rules);
         final span = record.days;
         if (span <= 0) continue;
-        var working = 0;
-        for (var d = 0; d < span; d++) {
-          if (job.worksOn(EiDates.addDays(record.periodStart, d))) working++;
-        }
+        final working = _workingDays(record, job);
         for (var d = 0; d < span; d++) {
           final day = EiDates.addDays(record.periodStart, d);
           final index = EiDates.between(from, day);
           if (index < 0 || index >= length) continue;
-          // Spread over the working days the entry covers, so a Monday to
-          // Friday week that straddles a period boundary splits by the
-          // weekdays on each side. An entry with no working days in it is
-          // spread over every day instead of being lost.
-          final share = working > 0
-              ? (job.worksOn(day) ? total / working : 0.0)
-              : total / span;
-          jobHours[index] += share;
+          jobHours[index] += _shareOn(day, job, total, working, span);
           covered[index] = true;
           jobKinds[index] = EiHoursKind.recorded;
         }
@@ -641,6 +650,47 @@ class _Ledger {
       futureRates: futureRates,
       totals: totals,
     );
+  }
+
+  /// An entry's hours on one of its days: spread over the working days it
+  /// covers, so a Monday to Friday week that straddles a period boundary
+  /// splits by the weekdays on each side. An entry with no working days in
+  /// it is spread over every day instead of being lost.
+  static double _shareOn(
+    DateTime day,
+    EiJob job,
+    double total,
+    int working,
+    int span,
+  ) => working > 0 ? (job.worksOn(day) ? total / working : 0.0) : total / span;
+
+  static int _workingDays(EiHoursRecord record, EiJob job) {
+    var working = 0;
+    for (var d = 0; d < record.days; d++) {
+      if (job.worksOn(EiDates.addDays(record.periodStart, d))) working++;
+    }
+    return working;
+  }
+
+  /// Hours [record] contributes to the days from [start] to [end].
+  static double recordHoursWithin(
+    EiHoursRecord record,
+    EiJob job,
+    EiRules rules,
+    DateTime start,
+    DateTime end,
+  ) {
+    final span = record.days;
+    if (span <= 0 || end.isBefore(start)) return 0;
+    final total = record.insurableHours(rules);
+    final working = _workingDays(record, job);
+    var sum = 0.0;
+    for (var d = 0; d < span; d++) {
+      final day = EiDates.addDays(record.periodStart, d);
+      if (day.isBefore(start) || day.isAfter(end)) continue;
+      sum += _shareOn(day, job, total, working, span);
+    }
+    return sum;
   }
 
   /// Floating-point slack when comparing summed fractions of hours.

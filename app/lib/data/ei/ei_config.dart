@@ -85,6 +85,28 @@ class EiPlanningSettings {
   final List<double> whatIfWeeklyHours;
 }
 
+/// How pay stubs are checked against the bank. Product judgement, not law.
+class EiVerificationSettings {
+  const EiVerificationSettings({
+    required this.depositDaysBeforePayDate,
+    required this.depositDaysAfterPayDate,
+    required this.depositSearchDaysWithoutPayDate,
+    required this.netPayToleranceCents,
+  });
+
+  /// Payroll sometimes lands a day or two before the date on the stub.
+  final int depositDaysBeforePayDate;
+
+  /// Or a few days after it, across a weekend or a holiday.
+  final int depositDaysAfterPayDate;
+
+  /// Without a pay date, how long after the period ends to look.
+  final int depositSearchDaysWithoutPayDate;
+
+  /// Rounding slack when gross pay less deductions is compared with net pay.
+  final int netPayToleranceCents;
+}
+
 /// Calendar arithmetic shared by the calculators. Not an EI rule.
 abstract final class EiCalendar {
   static const double weeksPerYear = 52;
@@ -106,5 +128,12 @@ abstract final class EiConfig {
     onTrackBufferFraction: 0.05,
     projectionHorizonDays: 1095,
     whatIfWeeklyHours: <double>[20, 25, 30, 35, 40],
+  );
+
+  static const EiVerificationSettings verification = EiVerificationSettings(
+    depositDaysBeforePayDate: 2,
+    depositDaysAfterPayDate: 4,
+    depositSearchDaysWithoutPayDate: 10,
+    netPayToleranceCents: 1,
   );
 }

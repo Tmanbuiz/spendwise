@@ -6,6 +6,7 @@ import '../data/ei/ei_dates.dart';
 import '../data/ei/ei_hours_engine.dart';
 import '../data/ei/ei_models.dart';
 import '../data/ei/ei_payroll_detection.dart';
+import '../data/ei/ei_verification.dart';
 import '../data/models/app_transaction.dart';
 import '../data/models/financial_document.dart';
 import 'financial_providers.dart';
@@ -78,6 +79,20 @@ final eiPayrollPatternsProvider = Provider<List<EiPayrollPattern>>((ref) {
       ref.watch(eiTodayProvider),
       -2 * EiConfig.rules.qualifyingPeriodDays,
     ),
+  );
+});
+
+/// Pay stubs checked against themselves and the bank, and the hours sorted
+/// by what backs them.
+final eiVerificationProvider = Provider<EiVerification?>((ref) {
+  final data = ref.watch(eiTrackerProvider).value;
+  final estimate = ref.watch(eiEstimateProvider);
+  if (data == null || estimate == null) return null;
+  return EiVerifier.verify(
+    data: data,
+    estimate: estimate,
+    transactions:
+        ref.watch(transactionsProvider).value ?? const <AppTransaction>[],
   );
 });
 
