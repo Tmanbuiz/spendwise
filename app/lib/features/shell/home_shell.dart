@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/router/app_router.dart';
 import '../../services/capture_controller.dart';
+import '../../services/shared_statements.dart';
 
 /// The four-tab shell holding the main screens.
 ///
@@ -20,15 +22,52 @@ class HomeShell extends ConsumerStatefulWidget {
   ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends ConsumerState<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Deferred to after the first frame so provider writes do not happen
     // during a build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(captureControllerProvider).start();
+      _openSharedStatements();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// A statement shared while the app was already open arrives as a new
+  /// intent, which resumes the activity rather than recreating it.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _openSharedStatements();
+  }
+
+  /// Opens the import screen when another app has handed over a statement.
+  ///
+  /// Only asks whether anything is waiting; the import screen takes the
+  /// queue itself, so a failed navigation cannot swallow the files.
+  /// True while the import screen this shell opened is still on top.
+  ///
+  /// Sharing several statements in quick succession resumes the app once
+  /// per file. Without this each resume stacked another import screen, and
+  /// only the first one ever saw the files — every screen above it drained
+  /// an empty queue and showed nothing.
+  bool _importOpen = false;
+
+  Future<void> _openSharedStatements() async {
+    if (_importOpen) return;
+    if (!await const SharedStatements().hasPending()) return;
+    if (!mounted) return;
+    _importOpen = true;
+    await context.push(Routes.importStatement);
+    _importOpen = false;
   }
 
   @override

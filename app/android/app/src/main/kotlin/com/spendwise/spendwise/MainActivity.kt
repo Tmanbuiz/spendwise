@@ -26,6 +26,23 @@ class MainActivity : FlutterActivity() {
     private companion object {
         const val METHOD_CHANNEL = "com.spendwise/notifications"
         const val EVENT_CHANNEL = "com.spendwise/notifications/stream"
+        const val SHARED_FILES_CHANNEL = "com.spendwise/shared_files"
+    }
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        SharedFileBridge.accept(this, intent)
+    }
+
+    /**
+     * The activity is `singleTop`, so a statement shared while the app is
+     * already open arrives here rather than through onCreate. Without this
+     * the second document a user shares would be silently dropped.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        SharedFileBridge.accept(this, intent)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -104,6 +121,15 @@ class MainActivity : FlutterActivity() {
                             ?: emptyList()
                         result.success(findInstalledApps(wanted))
                     }
+                    else -> result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SHARED_FILES_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "hasPending" -> result.success(SharedFileBridge.hasPending())
+                    "drain" -> result.success(SharedFileBridge.drain())
                     else -> result.notImplemented()
                 }
             }

@@ -10,6 +10,7 @@ import '../../core/formatters.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/app_transaction.dart';
+import '../../services/shared_statements.dart';
 import '../../services/statement_import_service.dart';
 import '../../state/financial_providers.dart';
 import '../../state/providers.dart';
@@ -25,15 +26,97 @@ class StatementImportScreen extends ConsumerStatefulWidget {
       _StatementImportScreenState();
 }
 
-class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
+class _StatementImportScreenState extends ConsumerState<StatementImportScreen>
+    with WidgetsBindingObserver {
   final List<StatementPreview> _previews = <StatementPreview>[];
   List<File> _files = <File>[];
   final Map<String, AmountSign> _signOverrides = <String, AmountSign>{};
   bool _busy = false;
   String? _error;
 
+  /// What the screen is doing right now, while it is doing it.
+  ///
+  /// Reading a PDF is real work, and a bare spinner over a batch of them
+  /// is indistinguishable from a hang.
+  String? _progress;
+
+  /// How many statements may be read in one batch.
+  ///
+  /// Bounded by patience rather than memory: each file is read and
+  /// reconciled in turn against everything already loaded, so a batch of a
+  /// year's statements is a few thousand rows — small — but the PDF text
+  /// extraction behind it is not instant. Twenty covers a full year of
+  /// monthly statements in one pass.
+  static const int _maxFiles = 20;
+
   StatementImportService get _service =>
       StatementImportService(idGenerator: generateId);
+
+  /// Guards against two collections overlapping, which would read the same
+  /// batch twice and double the preview.
+  bool _collecting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // A statement shared from Files or Gmail lands in a queue on the
+    // platform side. Collect it here rather than making the user find the
+    // file again through the picker.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _collectShared());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Sharing more statements while this screen is open should add them,
+  /// not be ignored until it is reopened.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _collectShared();
+  }
+
+  /// Collects everything shared, then builds the preview once.
+  ///
+  /// Sharing several statements at once can deliver them as a burst rather
+  /// than in one go, so the queue is drained until it stays empty. Reading
+  /// after the first batch and ignoring the rest is how this first went
+  /// wrong: files that landed while the previews were being built were
+  /// left in the queue with nothing to come back for them.
+  Future<void> _collectShared() async {
+    if (_collecting) return;
+    _collecting = true;
+    try {
+      const shared = SharedStatements();
+      final collected = <File>[];
+
+      var batch = await shared.drain();
+      while (batch.isNotEmpty) {
+        collected.addAll(batch);
+        // Long enough for the tail of a burst to land, short enough not to
+        // be felt when a single file was shared.
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        batch = await shared.drain();
+      }
+      if (!mounted || collected.isEmpty) return;
+
+      // Added to whatever is already staged rather than replacing it: a
+      // second share is more statements, not a different set.
+      final paths = _files.map((file) => file.path).toSet();
+      _files = <File>[
+        ..._files,
+        for (final file in collected)
+          if (paths.add(file.path)) file,
+      ].take(_maxFiles).toList();
+      _signOverrides.clear();
+      await _buildPreview();
+    } finally {
+      _collecting = false;
+    }
+  }
 
   Future<void> _pickFile() async {
     setState(() {
@@ -43,7 +126,7 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
 
     try {
       final picked = await FilePicker.pickFiles(
-        dialogTitle: 'Choose up to 6 statements',
+        dialogTitle: 'Choose up to $_maxFiles statements',
         type: FileType.custom,
         allowedExtensions: <String>['csv', 'pdf', 'txt'],
       );
@@ -52,9 +135,11 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
         setState(() => _busy = false);
         return;
       }
-      if (picked.length > 6 || picked.any((file) => file.path == null)) {
+      if (picked.length > _maxFiles ||
+          picked.any((file) => file.path == null)) {
         setState(() {
-          _error = 'Choose up to 6 files downloaded to your phone.';
+          _error =
+              'Choose up to $_maxFiles files downloaded to your phone.';
           _busy = false;
         });
         return;
@@ -86,7 +171,14 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
       );
       if (!mounted) return;
 
-      for (final file in _files) {
+      for (var index = 0; index < _files.length; index++) {
+        final file = _files[index];
+        if (_files.length > 1) {
+          setState(
+            () => _progress =
+                'Reading ${index + 1} of ${_files.length}…',
+          );
+        }
         final preview = await _service.preview(
           file,
           existing: existing,
@@ -107,10 +199,14 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
           existing.add(transaction);
         }
       }
-      setState(() => _busy = false);
+      setState(() {
+        _busy = false;
+        _progress = null;
+      });
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
+        _progress = null;
         _previews.clear();
         _error =
             'Could not read all statements. Try selecting unlocked, text-based PDFs or CSV files. $error';
@@ -250,7 +346,7 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'Import up to 6 statements together',
+                  'Import up to $_maxFiles statements together',
                   style: theme.textTheme.titleMedium,
                 ),
                 const SizedBox(height: 8),
@@ -314,6 +410,17 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
           if (_busy) ...<Widget>[
             const SizedBox(height: 24),
             const Center(child: CircularProgressIndicator()),
+            if (_progress != null) ...<Widget>[
+              const SizedBox(height: 12),
+              Center(
+                child: Text(
+                  _progress!,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
           ],
           if (_error != null) ...<Widget>[
             const SizedBox(height: 16),
