@@ -5,6 +5,7 @@ import '../planning/alerts_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/config/env.dart';
 import '../../core/diagnostics.dart';
@@ -14,6 +15,10 @@ import '../../data/models/bank.dart';
 import '../../services/capture_controller.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
+
+/// Who makes SpendWise. Shown in Settings so the owner is always visible.
+const String _ownerName = 'WinaTribe Inc';
+final Uri _ownerWebsite = Uri.parse('https://www.wiantribe.com');
 
 /// Settings, plus the honest status of everything the app depends on.
 class SettingsScreen extends ConsumerWidget {
@@ -292,10 +297,27 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           ],
+          const SizedBox(height: 20),
+          const SectionHeader(title: 'About'),
+          SectionCard(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: ListTile(
+              leading: const Icon(Icons.business_outlined),
+              title: const Text('Made by $_ownerName'),
+              subtitle: Text(
+                _ownerWebsite.host,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              trailing: const Icon(Icons.open_in_new_rounded),
+              onTap: () => _openOwnerWebsite(context),
+            ),
+          ),
           const SizedBox(height: 24),
           Center(
             child: Text(
-              'SpendWise 1.0.0',
+              'SpendWise 1.4.0  ·  © 2026 $_ownerName',
               style: theme.textTheme.labelSmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -336,6 +358,17 @@ class SettingsScreen extends ConsumerWidget {
     if (picked != null) {
       await ref.read(preferencesProvider.notifier).setMonthStartDay(picked);
     }
+  }
+
+  Future<void> _openOwnerWebsite(BuildContext context) async {
+    final opened = await launchUrl(
+      _ownerWebsite,
+      mode: LaunchMode.externalApplication,
+    );
+    if (opened || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Could not open ${_ownerWebsite.host}.')),
+    );
   }
 }
 

@@ -28,6 +28,7 @@ dependencies:
     path: ../packages/spendwise_parser
   file_picker: ^12.2.0
   syncfusion_flutter_pdf: ^34.2.6
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

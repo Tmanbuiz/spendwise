@@ -61,6 +61,12 @@
             <data android:mimeType="text/plain"/>
         </intent>
 
+        <!-- Lets Settings open the WinaTribe website in the browser. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+
         <!--
             Android 11+ hides installed packages unless they are declared here.
             These are declared so the app can answer one narrow question — "is
