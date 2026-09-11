@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../services/backup_service.dart';
 import '../../services/recurring_bills.dart';
+import '../../state/ei_providers.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
 
@@ -58,7 +59,7 @@ class _BackupState extends ConsumerState<BackupScreen> {
           children: [
             const SectionCard(
               child: Text(
-                'Keep a copy of your transactions, budgets, accounts, category rules, preferences and recurring bills. Backups contain readable financial data; save them somewhere private.',
+                'Keep a copy of your transactions, budgets, accounts, category rules, preferences, recurring bills and EI hours. Backups contain readable financial data; save them somewhere private.',
               ),
             ),
             const SizedBox(height: 16),
@@ -70,7 +71,12 @@ class _BackupState extends ConsumerState<BackupScreen> {
                   : () => run(() async {
                       final data = ref.read(dataLayerProvider);
                       final bills = await ref.read(billsProvider.future);
-                      final backup = await BackupData.capture(data, bills);
+                      final eiHours = await ref.read(eiTrackerProvider.future);
+                      final backup = await BackupData.capture(
+                        data,
+                        bills,
+                        eiHours: eiHours,
+                      );
                       final uri = await FilePicker.saveFile(
                         fileName:
                             'SpendWise-${DateTime.now().toIso8601String().substring(0, 10)}.json',
@@ -115,7 +121,7 @@ class _BackupState extends ConsumerState<BackupScreen> {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     Text(
-                      '${backup.transactions.length} transactions · ${backup.budgets.length} budgets\n${backup.accounts.length} accounts · ${backup.rules.length} category rules\n${backup.bills.length} recurring bills',
+                      '${backup.transactions.length} transactions · ${backup.budgets.length} budgets\n${backup.accounts.length} accounts · ${backup.rules.length} category rules\n${backup.bills.length} recurring bills\n${backup.eiHours?.jobs.length ?? 0} EI jobs · ${backup.eiHours?.records.length ?? 0} EI hours entries',
                     ),
                     const SizedBox(height: 12),
                     const Text(
@@ -152,6 +158,24 @@ class _BackupState extends ConsumerState<BackupScreen> {
                               await ref
                                   .read(billsProvider.notifier)
                                   .save(bills);
+                              final eiBackup = backup.eiHours;
+                              if (eiBackup != null) {
+                                final current = await ref.read(
+                                  eiTrackerProvider.future,
+                                );
+                                if (!mounted) return;
+                                final merged = current.mergeMissing(eiBackup);
+                                count +=
+                                    merged.jobs.length -
+                                    current.jobs.length +
+                                    merged.records.length -
+                                    current.records.length +
+                                    merged.breaks.length -
+                                    current.breaks.length;
+                                await ref
+                                    .read(eiTrackerProvider.notifier)
+                                    .save(merged);
+                              }
                               if (restoreSettings) {
                                 final current = await data.preferences.load();
                                 await data.preferences.save(

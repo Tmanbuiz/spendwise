@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:spendwise_parser/spendwise_parser.dart';
 
+import '../data/ei/ei_models.dart';
 import '../data/models/app_transaction.dart';
 import '../data/models/account.dart';
 import '../data/models/budget.dart';
@@ -17,6 +18,7 @@ class BackupData {
     required this.rules,
     required this.preferences,
     required this.bills,
+    this.eiHours,
   });
   final List<AppTransaction> transactions;
   final List<Account> accounts;
@@ -24,6 +26,11 @@ class BackupData {
   final List<MerchantRule> rules;
   final UserPreferences preferences;
   final List<RecurringBill> bills;
+
+  /// The EI hours tracker. Optional, so backups written before the tracker
+  /// existed still restore.
+  final EiTrackerData? eiHours;
+
   String encode() => jsonEncode({
     'app': 'SpendWise',
     'version': 1,
@@ -34,6 +41,7 @@ class BackupData {
     'rules': rules.map((x) => x.toJson()).toList(),
     'preferences': preferences.toJson(),
     'bills': bills.map((x) => x.toJson()).toList(),
+    if (eiHours != null && !eiHours!.isEmpty) 'ei_hours': eiHours!.toJson(),
   });
   static BackupData decode(String text) {
     if (text.length > 20000000) {
@@ -78,19 +86,26 @@ class BackupData {
         Map<String, dynamic>.from(root['preferences'] as Map),
       ),
       bills: rows('bills', RecurringBill.fromJson),
+      eiHours: root['ei_hours'] == null
+          ? null
+          : EiTrackerData.fromJson(
+              Map<String, Object?>.from(root['ei_hours'] as Map),
+            ),
     );
   }
 
   static Future<BackupData> capture(
     DataLayer data,
-    List<RecurringBill> bills,
-  ) async => BackupData(
+    List<RecurringBill> bills, {
+    EiTrackerData? eiHours,
+  }) async => BackupData(
     transactions: await data.transactions.list(),
     accounts: await data.accounts.list(),
     budgets: await data.budgets.list(),
     rules: await data.rules.list(),
     preferences: await data.preferences.load(),
     bills: bills,
+    eiHours: eiHours,
   );
 
   /// Writes the backup over what is on the device, by id.

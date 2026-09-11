@@ -117,6 +117,13 @@ class SettingsScreen extends ConsumerWidget {
             child: Column(
               children: [
                 ListTile(
+                  leading: const Icon(Icons.family_restroom_outlined),
+                  title: const Text('Leave planner'),
+                  subtitle: const Text('Maternity and parental leave, EI hours'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(Routes.leavePlanner),
+                ),
+                ListTile(
                   leading: const Icon(Icons.backup_outlined),
                   title: const Text('Backup and restore'),
                   trailing: const Icon(Icons.chevron_right),

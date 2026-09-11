@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 import '../../core/formatters.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../state/ei_providers.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
 import '../../widgets/insight_widgets.dart';
+import '../leave/ei_widgets.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -26,6 +28,13 @@ class DashboardScreen extends ConsumerWidget {
             .toList()
           ..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
     final categories = insights.current.byCategory;
+    // The EI card earns its place on Home only once someone has started
+    // planning leave; until then it would be noise for everyone else.
+    final eiData = ref.watch(eiTrackerProvider).value;
+    final eiEstimate = ref.watch(eiEstimateProvider);
+    final planningLeave =
+        eiData != null &&
+        (eiData.plannedClaimStart != null || eiData.jobs.isNotEmpty);
 
     return Scaffold(
       appBar: AppBar(
@@ -112,9 +121,25 @@ class DashboardScreen extends ConsumerWidget {
                     onTap: () => context.push(Routes.importStatement),
                   ),
                 ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _QuickAction(
+                    icon: Icons.family_restroom_outlined,
+                    label: 'Leave',
+                    detail: 'EI hours',
+                    onTap: () => context.push(Routes.leavePlanner),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
+            if (eiEstimate != null && planningLeave) ...[
+              EiHoursHero(
+                estimate: eiEstimate,
+                onTap: () => context.push(Routes.eiHours),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (supportsCapture && permission.value == false) ...[
               InsightNote(
                 title: 'Notification access is off',

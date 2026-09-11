@@ -14,6 +14,9 @@ import '../../features/debug/parser_debug_screen.dart';
 import '../../features/import/statement_import_screen.dart';
 import '../../features/insights/insights_screen.dart';
 import '../../features/insights/monthly_overview_screen.dart';
+import '../../features/leave/ei_calculators_screen.dart';
+import '../../features/leave/ei_hours_screen.dart';
+import '../../features/leave/leave_planner_screen.dart';
 import '../../features/onboarding/bank_selection_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/onboarding/permission_screen.dart';
@@ -56,6 +59,9 @@ abstract final class Routes {
   static const vault = '/vault';
   static const assistant = '/ask';
   static const financialRules = '/financial-rules';
+  static const leavePlanner = '/leave-planner';
+  static const eiHours = '/leave-planner/ei-hours';
+  static const eiCalculators = '/leave-planner/calculators';
   static const transactionDetail = 'transaction';
 }
 
@@ -133,6 +139,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: Routes.financialRules,
         builder: (_, _) => const FinancialRulesScreen(),
+      ),
+      GoRoute(
+        path: Routes.leavePlanner,
+        builder: (_, _) => const LeavePlannerScreen(),
+      ),
+      GoRoute(path: Routes.eiHours, builder: (_, _) => const EiHoursScreen()),
+      GoRoute(
+        path: Routes.eiCalculators,
+        builder: (_, state) => EiCalculatorsScreen(
+          initialTab: int.tryParse(state.uri.queryParameters['tab'] ?? '') ?? 0,
+        ),
       ),
       GoRoute(
         path: '/transaction',
