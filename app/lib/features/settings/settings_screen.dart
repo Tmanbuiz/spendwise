@@ -17,7 +17,7 @@ import '../../state/providers.dart';
 import '../../widgets/common.dart';
 
 /// Who makes SpendWise. Shown in Settings so the owner is always visible.
-const String _ownerName = 'WinaTribe Inc';
+const String _ownerName = 'WianTribe Inc';
 final Uri _ownerWebsite = Uri.parse('https://www.wiantribe.com');
 
 /// Settings, plus the honest status of everything the app depends on.

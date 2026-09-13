@@ -103,7 +103,7 @@
             <data android:mimeType="text/plain"/>
         </intent>
 
-        <!-- Lets Settings open the WinaTribe website in the browser. -->
+        <!-- Lets Settings open the WianTribe website in the browser. -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
