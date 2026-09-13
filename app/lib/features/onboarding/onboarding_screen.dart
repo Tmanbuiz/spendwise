@@ -4,12 +4,16 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../state/providers.dart';
 
 /// Explains what the app does and what it needs, before asking for anything.
 ///
 /// Notification access is an unusually broad Android permission, so the value
 /// exchange is stated up front — and so are the limits — rather than the user
 /// being dropped into a system settings page and left to guess.
+///
+/// Where notifications cannot be read at all, as on iPhone, the introduction
+/// describes the app that does exist there and setup ends with it.
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -21,7 +25,47 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _controller = PageController();
   int _page = 0;
 
-  static const List<_Slide> _slides = <_Slide>[
+  static const List<_Slide> _iphoneSlides = <_Slide>[
+    _Slide(
+      icon: Icons.upload_file_outlined,
+      title: 'Your statements, sorted for you',
+      body: 'Import the PDF or CSV statements your bank lets you download, or '
+          'open one from Files or Mail with Open in SpendWise.',
+    ),
+    _Slide(
+      icon: Icons.auto_awesome_outlined,
+      title: 'Sorted into categories for you',
+      body: 'Groceries, dining, gas, subscriptions and more are recognised '
+          'automatically. Correct one once and SpendWise remembers.',
+    ),
+    _Slide(
+      icon: Icons.shield_outlined,
+      title: 'Private, and read-only',
+      body: 'SpendWise cannot move money and never asks for your banking '
+          'password, PIN, CVV or full card number. On iPhone it works from '
+          'the statements and pay stubs you add.',
+    ),
+  ];
+
+  /// Whether this device can capture bank notifications, and so needs banks
+  /// chosen and notification access granted.
+  bool get _capture => ref.read(notificationAccessProvider).isSupportedPlatform;
+
+  List<_Slide> get _slides => _capture ? _captureSlides : _iphoneSlides;
+
+  /// Ends the introduction. Choosing banks and granting notification access
+  /// only mean something where alerts can be captured; everywhere else the
+  /// app is ready now.
+  Future<void> _finish() async {
+    if (_capture) {
+      context.go(Routes.bankSelection);
+      return;
+    }
+    await ref.read(preferencesProvider.notifier).completeOnboarding();
+    if (mounted) context.go(Routes.dashboard);
+  }
+
+  static const List<_Slide> _captureSlides = <_Slide>[
     _Slide(
       icon: Icons.notifications_active_outlined,
       title: 'Spending tracked as it happens',
@@ -53,7 +97,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   void _next() {
     if (_isLast) {
-      context.go(Routes.bankSelection);
+      _finish();
       return;
     }
     _controller.nextPage(
@@ -73,7 +117,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                onPressed: () => context.go(Routes.bankSelection),
+                onPressed: _finish,
                 child: const Text('Skip'),
               ),
             ),
@@ -107,7 +151,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               padding: const EdgeInsets.all(24),
               child: FilledButton(
                 onPressed: _next,
-                child: Text(_isLast ? 'Choose your banks' : 'Next'),
+                child: Text(
+                  !_isLast
+                      ? 'Next'
+                      : _capture
+                      ? 'Choose your banks'
+                      : 'Get started',
+                ),
               ),
             ),
           ],

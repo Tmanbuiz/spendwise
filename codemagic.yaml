@@ -1,0 +1,54 @@
+# Builds SpendWise for iPhone on Codemagic's Macs and sends it to TestFlight.
+#
+# Setup is described in IOS_BUILD.md. Two values below have to be filled in
+# once the app exists in App Store Connect: the integration name, and
+# APP_STORE_APPLE_ID.
+#
+# There is no trigger, so builds start only when run from the Codemagic
+# dashboard. Building on every push would spend Mac build minutes on changes
+# that never needed an iPhone build.
+workflows:
+  ios-testflight:
+    name: iOS to TestFlight
+    working_directory: app
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      # The name given to the App Store Connect API key under Codemagic's team
+      # integrations.
+      app_store_connect: SpendWise App Store Connect
+    environment:
+      flutter: stable
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.wiantribe.spendwise
+      vars:
+        # The Apple ID number shown under App Information in App Store Connect.
+        APP_STORE_APPLE_ID: 0000000000
+    scripts:
+      - name: Create local-mode environment file
+        # .env is git-ignored and listed as an asset, so the build fails
+        # without it. An empty file runs the app in device-local mode, the
+        # same as the GitHub quality checks.
+        script: touch .env
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Run tests
+        script: flutter test
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Build the iPhone app
+        script: |
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0)
+          flutter build ipa --release \
+            --build-number=$((LATEST + 1)) \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - app/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true

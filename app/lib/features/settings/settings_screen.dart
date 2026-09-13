@@ -43,11 +43,15 @@ class SettingsScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
         children: <Widget>[
-          const SectionHeader(title: 'Capture'),
+          SectionHeader(
+            title: access.isSupportedPlatform ? 'Capture' : 'Tools',
+          ),
           SectionCard(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: Column(
               children: <Widget>[
+                // Capture exists only where bank notifications can be read.
+                if (access.isSupportedPlatform) ...<Widget>[
                 _StatusTile(
                   icon: Icons.notifications_active_outlined,
                   title: 'Notification access',
@@ -73,6 +77,7 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 _DetectedAppsTile(),
                 _CaptureStatsTile(),
+                ],
                 ListTile(
                   leading: const Icon(Icons.science_outlined),
                   title: const Text('Test the parser'),
@@ -143,6 +148,9 @@ class SettingsScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+                // Budget notifications are shown by Android code, which an
+                // iPhone does not have yet.
+                if (access.isSupportedPlatform)
                 ListTile(
                   leading: const Icon(Icons.notifications_outlined),
                   title: const Text('Budget alerts'),

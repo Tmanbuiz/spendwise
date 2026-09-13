@@ -7,6 +7,7 @@ import 'package:spendwise/data/models/budget.dart';
 import 'package:spendwise/data/models/user_preferences.dart';
 import 'package:spendwise/data/repositories/repositories.dart';
 import 'package:spendwise/main.dart';
+import 'package:spendwise/services/notification_access.dart';
 import 'package:spendwise/state/providers.dart';
 import 'package:spendwise_parser/spendwise_parser.dart';
 
@@ -68,9 +69,13 @@ class _EmptyRules implements MerchantRuleRepository {
   Future<void> delete(String id) async {}
 }
 
-Widget appWith(UserPreferences preferences) {
+Widget appWith(UserPreferences preferences, {bool iPhone = false}) {
   return ProviderScope(
     overrides: [
+      if (iPhone)
+        notificationAccessProvider.overrideWithValue(
+          NotificationAccess(platformOverride: TargetPlatform.iOS),
+        ),
       dataLayerProvider.overrideWith(
         (ref) => DataLayer(
           transactions: _EmptyTransactions(),
@@ -175,6 +180,30 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Where it went'), findsOneWidget);
+    });
+
+    // Notification capture cannot exist on iPhone, so neither can the steps
+    // that set it up. Onboarding goes straight to the app, and Settings drops
+    // the capture and budget notification entries that would do nothing.
+    testWidgets('on iPhone, skips bank and notification setup', (
+      tester,
+    ) async {
+      await tester.pumpWidget(appWith(const UserPreferences(), iPhone: true));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Your statements, sorted for you'), findsOneWidget);
+      expect(find.text('Spending tracked as it happens'), findsNothing);
+
+      await tester.tap(find.text('Skip'));
+      await tester.pumpAndSettle();
+      expect(find.text('Your banks'), findsNothing);
+      expect(find.text('Where it went'), findsOneWidget);
+
+      await tester.tap(find.text('Settings'));
+      await tester.pumpAndSettle();
+      expect(find.text('Test the parser'), findsOneWidget);
+      expect(find.text('Notification access'), findsNothing);
+      expect(find.text('Budget alerts'), findsNothing);
     });
 
     testWidgets('the intro carousel advances', (tester) async {
