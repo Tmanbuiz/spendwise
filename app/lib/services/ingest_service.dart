@@ -126,7 +126,7 @@ class IngestService {
 
   Future<IngestResult> ingest(NotificationMessage message, {required Set<String> selectedBankIds}) {
     final result = _tail.then((_) => _ingest(message, selectedBankIds: selectedBankIds));
-    _tail = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _tail = result.then<void>((_) {}, onError: (Object error, StackTrace stackTrace) {});
     return result;
   }
 

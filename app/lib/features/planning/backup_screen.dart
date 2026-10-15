@@ -100,7 +100,8 @@ class _BackupState extends ConsumerState<BackupScreen> {
                         fileName:
                             'SpendWise-${DateTime.now().toIso8601String().substring(0, 10)}.json',
                         bytes: Uint8List.fromList(utf8.encode(content)),
-                        mimeType: 'application/json',
+                        type: FileType.custom,
+                        allowedExtensions: ['json'],
                       );
                       if (mounted && uri != null) {
                         setState(() => message = 'Backup saved.');
@@ -113,13 +114,13 @@ class _BackupState extends ConsumerState<BackupScreen> {
               onPressed: busy || ref.watch(dataLayerProvider).atomicWrite == null
                   ? null
                   : () => run(() async {
-                      final file = await FilePicker.pickFile(
+                      final files = await FilePicker.pickFiles(
                         type: FileType.custom,
                         allowedExtensions: ['json'],
                       );
-                      if (file?.path == null) return;
+                      if (files == null || files.isEmpty || files.single.path == null) return;
                       if (mounted) setState(() => preview = null);
-                      final input = File(file!.path!);
+                      final input = File(files.single.path!);
                       if (await input.length() > 30000000) {
                         throw const FormatException('File too large');
                       }

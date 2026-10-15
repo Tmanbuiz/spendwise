@@ -158,7 +158,9 @@ class CrossSourceReconciler {
   double _score(AggregatorTransaction incoming, AppTransaction candidate) {
     // A fuzzy merge requires positive card identity; missing digits are reviewed.
     if (incoming.accountLast4 == null || incoming.accountLast4!.isEmpty ||
-        candidate.accountLast4 == null || incoming.accountLast4 != candidate.accountLast4) return 0;
+        candidate.accountLast4 == null || incoming.accountLast4 != candidate.accountLast4) {
+      return 0;
+    }
     if (incoming.accountId != null && candidate.accountId != null && incoming.accountId != candidate.accountId) return 0;
     if (incoming.merchantNormalized == null || candidate.merchantNormalized == null) return 0;
     // The date gate is absolute: the posted date can trail the purchase but

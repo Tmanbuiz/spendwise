@@ -155,7 +155,7 @@ class BackupData {
     }
     compare(accounts.map((x) => x.id), (await data.accounts.list()).map((x) => x.id).toSet());
     compare(transactions.map((x) => x.id), (await data.transactions.list()).map((x) => x.id).toSet());
-    compare(rules.map((x) => x.id), (await data.rules.list()).map((x) => x.id).toSet());
+    compare(rules.map((x) => x.id).whereType<String>(), (await data.rules.list()).map((x) => x.id).whereType<String>().toSet());
     final oldBudgets = await data.budgets.list();
     for (final b in budgets) {
       if (oldBudgets.any((x) => x.id == b.id || (x.currency == b.currency && x.category == b.category))) {
