@@ -11,7 +11,9 @@ class LocalCipher {
   static Future<LocalCipher>? _opening;
   static Future<LocalCipher> open() => _opening ??= _open();
   static Future<LocalCipher> _open() async {
-    const storage = FlutterSecureStorage(iOptions: IOSOptions(
+    const storage = FlutterSecureStorage(
+      aOptions: AndroidOptions(resetOnError: false, migrateWithBackup: true),
+      iOptions: IOSOptions(
       accessibility: KeychainAccessibility.first_unlock_this_device,
     ));
     const name = 'spendwise.local.aes256.v1';

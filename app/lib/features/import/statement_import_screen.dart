@@ -42,11 +42,11 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
     });
 
     try {
-      final picked = (await FilePicker.pickFiles(
+      final picked = await FilePicker.pickFiles(
         dialogTitle: 'Choose up to 6 statements',
         type: FileType.custom,
         allowedExtensions: <String>['csv', 'pdf', 'txt'],
-      ))?.files;
+      );
       if (!mounted) return;
       if (picked == null || picked.isEmpty) {
         setState(() => _busy = false);

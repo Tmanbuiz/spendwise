@@ -100,8 +100,7 @@ class _BackupState extends ConsumerState<BackupScreen> {
                         fileName:
                             'SpendWise-${DateTime.now().toIso8601String().substring(0, 10)}.json',
                         bytes: Uint8List.fromList(utf8.encode(content)),
-                        type: FileType.custom,
-                        allowedExtensions: ['json'],
+                        mimeType: 'application/json',
                       );
                       if (mounted && uri != null) {
                         setState(() => message = 'Backup saved.');
@@ -114,10 +113,9 @@ class _BackupState extends ConsumerState<BackupScreen> {
               onPressed: busy || ref.watch(dataLayerProvider).atomicWrite == null
                   ? null
                   : () => run(() async {
-                      final files = (await FilePicker.pickFiles(
-                        type: FileType.custom,
-                        allowedExtensions: ['json'],
-                      ))?.files;
+                      final files = await FilePicker.pickFiles(
+                        mimeType: 'application/json',
+                      );
                       if (files == null || files.isEmpty || files.single.path == null) return;
                       if (mounted) setState(() => preview = null);
                       final input = File(files.single.path!);

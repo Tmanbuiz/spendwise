@@ -21,7 +21,7 @@ dependencies:
   shared_preferences: ^2.5.5
   path_provider: ^2.1.5
   cryptography: ^2.7.0
-  flutter_secure_storage: ^9.2.4
+  flutter_secure_storage: ^11.2.0
   sqflite: ^2.4.2
 
   # The parsing, categorisation and duplicate-detection engine. Pure Dart with
@@ -29,7 +29,7 @@ dependencies:
   # the planned iOS email importer unchanged.
   spendwise_parser:
     path: ../packages/spendwise_parser
-  file_picker: ^11.0.3
+  file_picker: ^12.2.0
   syncfusion_flutter_pdf: ^34.2.6
 
 dev_dependencies:

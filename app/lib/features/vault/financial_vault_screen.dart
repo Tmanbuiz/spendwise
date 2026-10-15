@@ -33,11 +33,11 @@ class _FinancialVaultScreenState extends ConsumerState<FinancialVaultScreen> {
     });
 
     try {
-      final picked = (await FilePicker.pickFiles(
+      final picked = await FilePicker.pickFiles(
         dialogTitle: 'Choose financial documents',
         type: FileType.custom,
         allowedExtensions: <String>['pdf', 'csv', 'txt', 'jpg', 'jpeg', 'png'],
-      ))?.files;
+      );
       if (!mounted) return;
       if (picked == null || picked.isEmpty) {
         setState(() => _busy = false);
