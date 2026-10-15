@@ -430,6 +430,8 @@ class _CaptureStatsTile extends ConsumerWidget {
             <String>[
               '${data.seen} notifications seen, '
                   '${data.matched} from your banks',
+              if (data.failed > 0) '${data.failed} alerts failed — tap to retry',
+              if (data.dropped > 0) '${data.dropped} alerts could not be retained. Import a statement to check your totals.',
               if (data.pending > 0)
                 '${data.pending} waiting — tap to process now',
               if (!data.listenerConnected) 'Listener not connected to Android',

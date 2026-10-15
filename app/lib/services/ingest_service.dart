@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:spendwise_parser/spendwise_parser.dart';
 
 import '../data/models/app_transaction.dart';

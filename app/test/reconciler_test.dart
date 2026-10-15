@@ -13,6 +13,7 @@ AppTransaction captured({
   required String merchant,
   required DateTime when,
   String? last4 = '1234',
+  String? id,
   TransactionEventType type = TransactionEventType.purchase,
   SpendCategory category = SpendCategory.other,
   TransactionSource source = TransactionSource.notification,
@@ -20,7 +21,7 @@ AppTransaction captured({
   String? fingerprint,
 }) {
   return AppTransaction(
-    id: 'existing-$merchant-$cents',
+    id: id ?? 'existing-$merchant-$cents',
     eventType: type,
     amountCents: cents,
     currency: 'CAD',
@@ -60,6 +61,25 @@ AggregatorTransaction incoming({
 
 void main() {
   final tuesday = DateTime(2026, 9, 1, 12, 30);
+
+  test('different cards veto even an otherwise exact match', () {
+    final result = reconciler.reconcile(incoming(cents: 4567, merchant: 'TIM HORTONS', date: tuesday, last4: '9999'),
+      [captured(cents: 4567, merchant: 'TIM HORTONS', when: tuesday)], idGenerator: nextId);
+    expect(result.action, ReconcileAction.insert);
+  });
+  test('missing card identity stays separate for review', () {
+    final result = reconciler.reconcile(incoming(cents: 4567, merchant: 'TIM HORTONS', date: tuesday, last4: null),
+      [captured(cents: 4567, merchant: 'TIM HORTONS', when: tuesday)], idGenerator: nextId);
+    expect(result.action, ReconcileAction.insert);
+    expect(result.merged!.needsReview, isTrue);
+  });
+  test('two plausible purchases are not silently collapsed', () {
+    final result = reconciler.reconcile(incoming(cents: 4567, merchant: 'TIM HORTONS', date: tuesday),
+      [captured(cents: 4567, merchant: 'TIM HORTONS', when: tuesday, id: 'one'),
+       captured(cents: 4567, merchant: 'TIM HORTONS', when: tuesday, id: 'two')], idGenerator: nextId);
+    expect(result.action, ReconcileAction.insert);
+    expect(result.merged!.needsReview, isTrue);
+  });
 
   group('the same purchase from both sources is stored once', () {
     test('exact match on amount, merchant, card and date', () {

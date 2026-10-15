@@ -239,6 +239,21 @@ object NotificationBridge {
         }
     }
 
+    fun retryFailed() {
+        synchronized(lock) {
+            val queue = loadQueue(KEY_QUEUE)
+            val dead = loadQueue(KEY_DEAD)
+            val remaining = JSONArray()
+            for (i in 0 until dead.length()) {
+                val item = dead.optJSONObject(i) ?: continue
+                if (queue.length() < MAX_QUEUE) queue.put(item.put("retries", 0)) else remaining.put(item)
+            }
+            saveQueue(KEY_QUEUE, queue)
+            saveQueue(KEY_DEAD, remaining)
+        }
+    }
+
+    @Synchronized
     private fun queueKey(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         val alias = "spendwise.capture.v1"

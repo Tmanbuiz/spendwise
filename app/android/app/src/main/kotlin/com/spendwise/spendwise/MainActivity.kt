@@ -93,6 +93,10 @@ class MainActivity : FlutterActivity() {
                     "isListenerConnected" -> result.success(NotificationBridge.isListenerConnected())
                     "rescanActive" -> result.success(NotificationBridge.rescanActive())
                     "drainPending" -> result.success(NotificationBridge.drainQueue())
+                    "retryFailed" -> {
+                        NotificationBridge.retryFailed()
+                        result.success(null)
+                    }
                     "ackPending", "failPending" -> {
                         val id = call.arguments as? String
                         if (id == null) result.error("invalid_id", "Missing envelope ID", null)

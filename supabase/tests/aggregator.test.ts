@@ -4,7 +4,7 @@ import { pages, sinceDate, ApiError } from '../functions/_shared/core.ts';
 
 test('rejects invalid, future, wrong-type and excessive lookback dates', () => {
   const now = new Date('2026-10-15T12:00:00Z');
-  for (const value of ['bad', '2026-12-01', '2020-01-01', null, 123]) {
+  for (const value of ['bad', '2026-12-01', '2020-01-01', '2026-02-31', null, 123]) {
     assert.throws(() => sinceDate(value, now), ApiError);
   }
   assert.equal(sinceDate('2026-10-01', now), '2026-10-01');

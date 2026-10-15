@@ -160,6 +160,7 @@ class CrossSourceReconciler {
     if (incoming.accountLast4 == null || incoming.accountLast4!.isEmpty ||
         candidate.accountLast4 == null || incoming.accountLast4 != candidate.accountLast4) return 0;
     if (incoming.accountId != null && candidate.accountId != null && incoming.accountId != candidate.accountId) return 0;
+    if (incoming.merchantNormalized == null || candidate.merchantNormalized == null) return 0;
     // The date gate is absolute: the posted date can trail the purchase but
     // never precede it by more than a day of clock skew.
     final drift = incoming.date.difference(candidate.occurredAt);

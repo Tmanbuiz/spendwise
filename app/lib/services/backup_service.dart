@@ -50,7 +50,7 @@ class BackupData {
       return items.map((item) {
         final row = Map<String, dynamic>.from(item as Map);
         final id = row['id'];
-        if (id is! String || id.isEmpty || id.length > 200 || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(id) || !ids.add(id)) {
+        if (id is! String || id.isEmpty || id.length > 64 || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(id) || !ids.add(id)) {
           throw FormatException('Invalid or repeated ID in $key');
         }
         if (key == 'transactions') {

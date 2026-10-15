@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 
 /// One captured failure.
 class RecordedError {
-  RecordedError(this.error, this.stack, {this.context})
-      : at = DateTime.now();
+  RecordedError(Object value, StackTrace? trace, {this.context})
+      : error = value.runtimeType.toString(), stack = null, at = DateTime.now();
 
   final Object error;
   final StackTrace? stack;
@@ -41,7 +41,7 @@ class Diagnostics extends ChangeNotifier {
     _errors.insert(0, RecordedError(error, stack, context: context));
     // Bounded: a repeating failure must not grow without limit.
     if (_errors.length > 30) _errors.removeLast();
-    debugPrint('SpendWise error${context == null ? '' : ' ($context)'}: $error');
+    debugPrint('SpendWise error: ${error.runtimeType}');
     notifyListeners();
   }
 
@@ -52,14 +52,13 @@ class Diagnostics extends ChangeNotifier {
 
   /// Installs global handlers. Call before `runApp`.
   static void install() {
-    final previous = FlutterError.onError;
     FlutterError.onError = (details) {
       instance.record(
         details.exception,
         details.stack,
         context: details.context?.toString(),
       );
-      previous?.call(details);
+      // Do not forward exception text: platform errors can contain financial rows.
     };
 
     // Errors escaping the widget tree — a failed provider build, a rejected
@@ -110,7 +109,7 @@ class _InlineError extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                details.exception.toString(),
+                'Error code: ${details.exception.runtimeType}',
                 style: const TextStyle(
                   color: Color(0xFF7F1D1D),
                   fontSize: 12,

@@ -82,7 +82,7 @@ Deno.serve(endpoint(async (req, { user, admin }) => {
     try {
       if (item.provider !== 'plaid') throw new ApiError('unsupported_provider', 400);
       const { transactions, accounts } = await pages(item.access_token, since, plaid);
-      const normalized = transactions.map((txn: PlaidTransaction) => ({
+      const normalized = transactions.filter((txn: PlaidTransaction) => !txn.pending).map((txn: PlaidTransaction) => ({
         provider_id: txn.transaction_id,
         amount_cents: Math.round(Math.abs(txn.amount) * 100),
         currency: txn.iso_currency_code ?? 'CAD', date: txn.date,

@@ -19,6 +19,8 @@ class CaptureStats {
     required this.listenerConnected,
     required this.watchedPackages,
     required this.available,
+    this.failed = 0,
+    this.dropped = 0,
   });
 
   static const CaptureStats unavailable = CaptureStats(
@@ -46,6 +48,8 @@ class CaptureStats {
 
   /// Still waiting to be processed.
   final int pending;
+  final int failed;
+  final int dropped;
 
   final bool listenerConnected;
   final List<String> watchedPackages;
@@ -61,6 +65,8 @@ class CaptureStats {
       queued: read('queued'),
       delivered: read('delivered'),
       pending: read('pending'),
+      failed: read('failed'),
+      dropped: read('dropped'),
       listenerConnected: (map['listenerConnected'] as bool?) ?? false,
       watchedPackages: (map['watchedPackages'] as List<Object?>?)
               ?.whereType<String>()
@@ -199,6 +205,10 @@ class NotificationAccess {
     } on MissingPluginException {
       return const <NotificationMessage>[];
     }
+  }
+
+  Future<void> retryFailed() async {
+    if (isSupportedPlatform) await _method.invokeMethod<void>('retryFailed');
   }
 
   Future<void> acknowledge(NotificationMessage message, {bool failed = false}) async {

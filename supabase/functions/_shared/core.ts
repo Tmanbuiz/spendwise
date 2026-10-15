@@ -4,6 +4,10 @@ export class ApiError extends Error {
 export function sinceDate(value: unknown, now = new Date()): string {
   const date = value === undefined ? new Date(now.getTime() - 90 * 86400000) :
     typeof value === 'string' ? new Date(value) : new Date(NaN);
+  if (typeof value === 'string' && (!/^\d{4}-\d{2}-\d{2}(T.*)?$/.test(value) ||
+      !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value.slice(0, 10))) {
+    throw new ApiError('invalid_since', 400);
+  }
   if (!Number.isFinite(date.getTime()) || date > now || now.getTime() - date.getTime() > 730 * 86400000) {
     throw new ApiError('invalid_since', 400);
   }

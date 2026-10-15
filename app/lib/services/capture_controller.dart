@@ -79,6 +79,7 @@ class CaptureController {
     // Re-reading the shade first picks up alerts that arrived before access
     // was granted. The service writes them to the same queue, so a short wait
     // lets that land before draining.
+    if (rescanFirst) await access.retryFailed();
     if (rescanFirst && await access.rescanActive()) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
     }
