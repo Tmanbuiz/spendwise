@@ -234,8 +234,7 @@ object NotificationBridge {
             }
             while (dead.length() > 100) { dead.remove(0); bump(KEY_DROPPED) }
             // Persist failed records first, so a crash cannot silently lose one.
-            saveQueue(KEY_DEAD, dead)
-            saveQueue(KEY_QUEUE, next)
+            saveQueues(KEY_DEAD to dead, KEY_QUEUE to next)
         }
     }
 
@@ -248,8 +247,7 @@ object NotificationBridge {
                 val item = dead.optJSONObject(i) ?: continue
                 if (queue.length() < MAX_QUEUE) queue.put(item.put("retries", 0)) else remaining.put(item)
             }
-            saveQueue(KEY_QUEUE, queue)
-            saveQueue(KEY_DEAD, remaining)
+            saveQueues(KEY_QUEUE to queue, KEY_DEAD to remaining)
         }
     }
 
@@ -273,13 +271,21 @@ object NotificationBridge {
         cipher.updateAAD(key.toByteArray(Charsets.UTF_8))
         return JSONArray(String(cipher.doFinal(Base64.decode(payload.getString("data"), Base64.NO_WRAP)), Charsets.UTF_8))
     }
-    private fun saveQueue(key: String, value: JSONArray) {
+    private fun saveQueue(key: String, value: JSONArray) = saveQueues(key to value)
+
+    private fun saveQueues(vararg values: Pair<String, JSONArray>) {
+        val editor = checkNotNull(prefs).edit()
+        for ((key, value) in values) editor.putString(key, encodeQueue(key, value))
+        check(editor.commit()) { "Queue persistence failed" }
+    }
+
+    private fun encodeQueue(key: String, value: JSONArray): String {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, queueKey())
         cipher.updateAAD(key.toByteArray(Charsets.UTF_8))
         val payload = JSONObject().put("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
             .put("data", Base64.encodeToString(cipher.doFinal(value.toString().toByteArray(Charsets.UTF_8)), Base64.NO_WRAP))
-        check(prefs?.edit()?.putString(key, payload.toString())?.commit() == true) { "Queue persistence failed" }
+        return payload.toString()
     }
 
     fun pendingCount(): Int {

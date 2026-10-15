@@ -196,10 +196,17 @@ class NotificationAccess {
     try {
       final pending = await _method.invokeMethod<List<Object?>>('drainPending');
       if (pending == null) return const <NotificationMessage>[];
-      return pending
-          .map(_decode)
-          .whereType<NotificationMessage>()
-          .toList();
+      final decoded = <NotificationMessage>[];
+      for (final raw in pending) {
+        final message = _decode(raw);
+        if (message != null) { decoded.add(message); continue; }
+        final id = raw is Map ? raw['envelopeId'] : null;
+        if (id is String && id.isNotEmpty) {
+          try { await _method.invokeMethod<void>('failPending', id); }
+          on Object { /* Retain the malformed entry if failure tracking is unavailable. */ }
+        }
+      }
+      return decoded;
     } on PlatformException {
       return const <NotificationMessage>[];
     } on MissingPluginException {
@@ -260,10 +267,13 @@ class NotificationAccess {
   /// Returns null for anything malformed rather than throwing, because a
   /// single bad payload must not tear down the capture stream.
   static NotificationMessage? _decode(Object? event) {
+    try { return _decodeChecked(event); } on Object { return null; }
+  }
+  static NotificationMessage? _decodeChecked(Object? event) {
     if (event is! Map) return null;
     final map = Map<Object?, Object?>.from(event);
 
-    String read(String key) => (map[key] as String?)?.trim() ?? '';
+    String read(String key) => map[key] is String ? (map[key] as String).trim() : '';
 
     final packageName = read('packageName');
     if (packageName.isEmpty) return null;

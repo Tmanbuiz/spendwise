@@ -20,8 +20,15 @@ class LocalCipher {
       final key = await algorithm.newSecretKey();
       encoded = base64Encode(await key.extractBytes());
       await storage.write(key: name, value: encoded);
+      if (await storage.read(key: name) != encoded) throw StateError('Secure key verification failed');
     }
-    return LocalCipher(SecretKey(base64Decode(encoded)));
+    final bytes = base64Decode(encoded);
+    if (bytes.length != 32) throw const FormatException('Invalid local storage key');
+    return LocalCipher(SecretKey(bytes));
+  }
+  Future<String> indexIdentifier(String value) async {
+    final mac = await Hmac.sha256().calculateMac(utf8.encode(value), secretKey: key);
+    return base64Encode(mac.bytes);
   }
   Future<String> encrypt(List<int> bytes, String scope) async {
     final box = await algorithm.encrypt(bytes, secretKey: key, aad: utf8.encode(scope));

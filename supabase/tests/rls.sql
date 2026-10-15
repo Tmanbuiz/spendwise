@@ -30,4 +30,18 @@ select set_config('request.jwt.claim.sub','22222222-2222-2222-2222-222222222222'
 do $$ begin
   if (select count(*) from public.linked_items_public) <> 1 or (select id from public.linked_items_public) <> 'b' then raise exception 'Second owner isolation failed'; end if;
 end $$;
+-- The same captured event replayed under a second client ID remains one row.
+select public.ingest_notification('{"id":"event-a","source":"notification","event_type":"purchase",
+  "amount_cents":1200,"currency":"CAD","occurred_at":"2026-10-15T10:00:00Z","category":"other",
+  "bank_id":"cibc","account_last4":"1234","fingerprint":"alert","needs_review":false,
+  "excluded_by_user":false,"category_set_by_user":false}'::jsonb);
+select public.ingest_notification('{"id":"event-b","source":"notification","event_type":"purchase",
+  "amount_cents":1200,"currency":"CAD","occurred_at":"2026-10-15T10:00:00Z","category":"other",
+  "bank_id":"cibc","account_last4":"1234","fingerprint":"alert","needs_review":false,
+  "excluded_by_user":false,"category_set_by_user":false}'::jsonb);
+do $$ begin
+  if (select count(*) from public.transactions where fingerprint='alert') <> 1 then
+    raise exception 'Notification replay created a duplicate';
+  end if;
+end $$;
 rollback;

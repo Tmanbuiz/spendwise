@@ -8,6 +8,7 @@ import '../models/financial_document.dart';
 import '../models/financial_rule.dart';
 import '../models/user_preferences.dart';
 import 'repositories.dart';
+import '../../core/config/env.dart';
 
 /// Supabase-backed storage.
 ///
@@ -53,7 +54,12 @@ class SupabaseTransactionRepository implements TransactionRepository {
 
   @override
   Future<void> upsert(AppTransaction transaction) async {
-    await _client.from('transactions').upsert(transaction.toJson());
+    if (transaction.source == TransactionSource.notification && transaction.fingerprint != null) {
+      await _client.rpc('ingest_notification', params: {'payload': transaction.toJson(),
+        'duplicate_seconds': Env.duplicateWindow.inSeconds});
+    } else {
+      await _client.from('transactions').upsert(transaction.toJson());
+    }
   }
 
   @override

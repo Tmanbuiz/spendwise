@@ -27,20 +27,32 @@ class CaptureController {
 
   Future<void> start() async {
     if (_started) return;
+    try { await _start(); }
+    on Object {
+      _started = false;
+      await _subscription?.cancel();
+      _subscription = null;
+      rethrow;
+    }
+  }
+
+  Future<void> _start() async {
+    if (_started) return;
     _started = true;
 
     final access = _ref.read(notificationAccessProvider);
     if (!access.isSupportedPlatform) return;
 
+    // Never replace the watched bank list or acknowledge a backlog while
+    // the user's bank preferences are still loading.
+    await _ref.read(preferencesProvider.future);
     await _syncWatchedPackages();
 
     final ingest = _ref.read(ingestServiceProvider);
     await ingest.warmUp();
 
-    // Drain before subscribing. Almost every real purchase alert arrives while
-    // the app is closed, so the queue — not the live stream — is the path that
-    // carries the traffic. Draining first also keeps ordering sensible: older
-    // queued alerts are processed before anything arriving now.
+    // Subscribe before taking the durable snapshot so a notification arriving
+    // during startup is covered by the stream, the backlog, or both.
     _subscription = access.stream().listen(
       _handle,
       // A stream error must not kill capture permanently; the OS may resume
@@ -94,7 +106,7 @@ class CaptureController {
         await access.acknowledge(message);
         if (result.wasStored) stored++;
       } on Object {
-        await access.acknowledge(message, failed: true);
+        await _markFailed(message);
       }
     }
 
@@ -105,8 +117,7 @@ class CaptureController {
   }
 
   Future<IngestResult> _ingestOne(NotificationMessage message) async {
-    final selected =
-        _ref.read(preferencesProvider).value?.selectedBankIds ?? <String>{};
+    final selected = (await _ref.read(preferencesProvider.future)).selectedBankIds;
     final result = await _ref.read(ingestServiceProvider).ingest(
           message,
           selectedBankIds: selected,
@@ -122,7 +133,7 @@ class CaptureController {
       result = await _ingestOne(message);
       await access.acknowledge(message);
     } on Object {
-      await access.acknowledge(message, failed: true);
+      await _markFailed(message);
       return;
     }
 
@@ -131,6 +142,11 @@ class CaptureController {
     if (result.wasStored) {
       await _ref.read(transactionsProvider.notifier).refresh();
     }
+  }
+
+  Future<void> _markFailed(NotificationMessage message) async {
+    try { await _ref.read(notificationAccessProvider).acknowledge(message, failed: true); }
+    on Object { debugPrint('Capture remains pending; acknowledgment unavailable'); }
   }
 
   void _remember(IngestResult result) {

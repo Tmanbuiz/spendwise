@@ -28,7 +28,7 @@ dependencies:
   # no Flutter dependency, so it is unit-tested without a device and can back
   # the planned iOS email importer unchanged.
   spendwise_parser:
-    path: ../../packages/spendwise_parser
+    path: ../packages/spendwise_parser
   file_picker: ^12.2.0
   syncfusion_flutter_pdf: ^34.2.6
 

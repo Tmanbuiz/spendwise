@@ -3,10 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../services/backup_service.dart';
+import '../../services/backup_crypto.dart';
 import '../../services/recurring_bills.dart';
 import '../../state/providers.dart';
 import '../../widgets/common.dart';
@@ -21,6 +23,13 @@ class _BackupState extends ConsumerState<BackupScreen> {
   bool busy = false;
   bool restoreSettings = false;
   bool overwrite = false;
+  bool encryptBackup = true;
+  final backupPassword = TextEditingController();
+  @override
+  void dispose() { backupPassword.dispose(); super.dispose(); }
+
+  Future<String?> requestPassword() => showDialog<String>(context: context,
+    builder: (_) => const _BackupPasswordDialog());
   String? message;
   BackupData? preview;
   Future<void> run(Future<void> Function() action) async {
@@ -30,6 +39,8 @@ class _BackupState extends ConsumerState<BackupScreen> {
     });
     try {
       await action();
+    } on SecretBoxAuthenticationError {
+      if (mounted) setState(() => message = 'The password is incorrect or the backup is damaged.');
     } on Object catch (_) {
       if (mounted) {
         setState(
@@ -59,23 +70,36 @@ class _BackupState extends ConsumerState<BackupScreen> {
           children: [
             const SectionCard(
               child: Text(
-                'Keep a copy of your transactions, budgets, accounts, category rules, preferences and recurring bills. Backups contain readable financial data; save them somewhere private.',
+                'Keep a copy of your transactions, budgets, accounts, category rules, preferences and recurring bills. Password protection keeps exported financial data private. Keep the password safe; it cannot be recovered.',
               ),
             ),
             const SizedBox(height: 16),
+            SwitchListTile(title: const Text('Protect backup with a password'), value: encryptBackup,
+              onChanged: busy ? null : (v) => setState(() => encryptBackup = v)),
+            if (encryptBackup) TextField(controller: backupPassword, obscureText: true,
+              enableSuggestions: false, autocorrect: false,
+              decoration: const InputDecoration(labelText: 'Backup password (at least 12 characters)')),
+            if (!encryptBackup) const Text('Privacy warning: this backup will contain readable financial records. Anyone with the file can read them.'),
             FilledButton.icon(
               icon: const Icon(Icons.save_alt),
               label: const Text('Save backup'),
               onPressed: busy
                   ? null
                   : () => run(() async {
+                      if (encryptBackup && (backupPassword.text.length < 12 || backupPassword.text.length > 1024)) {
+                        setState(() => message = 'Use a backup password of 12 to 1024 characters.');
+                        return;
+                      }
                       final data = ref.read(dataLayerProvider);
                       final bills = await ref.read(billsProvider.future);
                       final backup = await BackupData.capture(data, bills);
+                      final content = encryptBackup
+                        ? await BackupCrypto.encrypt(backup.encode(), backupPassword.text)
+                        : backup.encode();
                       final uri = await FilePicker.saveFile(
                         fileName:
                             'SpendWise-${DateTime.now().toIso8601String().substring(0, 10)}.json',
-                        bytes: Uint8List.fromList(utf8.encode(backup.encode())),
+                        bytes: Uint8List.fromList(utf8.encode(content)),
                         mimeType: 'application/json',
                       );
                       if (mounted && uri != null) {
@@ -96,12 +120,17 @@ class _BackupState extends ConsumerState<BackupScreen> {
                       if (file?.path == null) return;
                       if (mounted) setState(() => preview = null);
                       final input = File(file!.path!);
-                      if (await input.length() > 20000000) {
+                      if (await input.length() > 30000000) {
                         throw const FormatException('File too large');
                       }
-                      final result = BackupData.decode(
-                        await input.readAsString(),
-                      );
+                      var content = await input.readAsString();
+                      if (BackupCrypto.isEncrypted(content)) {
+                        if (!mounted) return;
+                        final password = await requestPassword();
+                        if (password == null) return;
+                        content = await BackupCrypto.decrypt(content, password);
+                      }
+                      final result = BackupData.decode(content);
                       if (mounted) setState(() => preview = result);
                     }),
             ),
@@ -189,4 +218,22 @@ class _BackupState extends ConsumerState<BackupScreen> {
       ),
     );
   }
+}
+
+class _BackupPasswordDialog extends StatefulWidget {
+  const _BackupPasswordDialog();
+  @override
+  State<_BackupPasswordDialog> createState() => _BackupPasswordDialogState();
+}
+class _BackupPasswordDialogState extends State<_BackupPasswordDialog> {
+  final controller = TextEditingController();
+  @override
+  void dispose() { controller.dispose(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Backup password'),
+    content: TextField(controller: controller, obscureText: true, enableSuggestions: false, autocorrect: false,
+      decoration: const InputDecoration(labelText: 'Password used to save this backup')),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Unlock'))]);
 }
