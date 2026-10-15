@@ -1,4 +1,8 @@
 import 'dart:convert';
+import 'dart:async';
+
+import 'package:sqflite/sqflite.dart';
+import '../../services/local_cipher.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:spendwise_parser/spendwise_parser.dart';
@@ -18,54 +22,80 @@ import 'repositories.dart';
 /// backend is being set up. The Settings screen states plainly that data is
 /// local only.
 class LocalStore {
-  LocalStore(this._prefs);
+  LocalStore(this._db, this._cipher);
+  final Database _db;
+  final LocalCipher _cipher;
+  final Object _zoneKey = Object();
+  DatabaseExecutor get _executor => Zone.current[_zoneKey] as DatabaseExecutor? ?? _db;
+  static const keys = ['spendwise.transactions', 'spendwise.accounts',
+    'spendwise.budgets', 'spendwise.rules', 'spendwise.financial_documents',
+    'spendwise.financial_rules', 'spendwise.preferences', 'spendwise.recurring_bills'];
 
-  final SharedPreferences _prefs;
-
-  static Future<DataLayer> open() async {
+  static Future<DataLayer> open({DatabaseFactory? factory, LocalCipher? cipher, String? path}) async {
+    final db = await (factory ?? databaseFactory).openDatabase(
+      path ?? '${await getDatabasesPath()}/spendwise-v1.db',
+      options: OpenDatabaseOptions(version: 1, singleInstance: path != inMemoryDatabasePath, onCreate: (db, _) async {
+        await db.execute('CREATE TABLE records (collection TEXT PRIMARY KEY, payload TEXT NOT NULL)');
+      }),
+    );
+    final store = LocalStore(db, cipher ?? await LocalCipher.open());
     final prefs = await SharedPreferences.getInstance();
-    final store = LocalStore(prefs);
+    // Commit and read back every encrypted payload before removing any legacy
+    // row. If interrupted, the next launch resumes without replacing new data.
+    await store.atomic(() async {
+      for (final key in keys) {
+        final raw = prefs.getString(key);
+        if (raw == null) continue;
+        final old = jsonDecode(raw); // Corruption fails closed; never starts empty.
+        if (key.endsWith('.preferences') ? old is! Map : old is! List) {
+          throw const FormatException('Invalid legacy store');
+        }
+        if ((await store._executor.query('records', where: 'collection = ?', whereArgs: [key])).isEmpty) {
+          await store._write(key, raw);
+          if (await store._read(key) != raw) throw StateError('Migration verification failed');
+        }
+      }
+    });
+    for (final key in keys) {
+      if (prefs.containsKey(key) && !await prefs.remove(key)) throw StateError('Legacy cleanup failed');
+    }
     return DataLayer(
-      transactions: LocalTransactionRepository(store),
-      accounts: LocalAccountRepository(store),
-      budgets: LocalBudgetRepository(store),
-      rules: LocalRuleRepository(store),
-      documents: LocalFinancialDocumentRepository(store),
-      financialRules: LocalFinancialRuleRepository(store),
-      preferences: LocalPreferencesRepository(store),
-      isRemote: false,
+      transactions: LocalTransactionRepository(store), accounts: LocalAccountRepository(store),
+      budgets: LocalBudgetRepository(store), rules: LocalRuleRepository(store),
+      documents: LocalFinancialDocumentRepository(store), financialRules: LocalFinancialRuleRepository(store),
+      preferences: LocalPreferencesRepository(store), isRemote: false, atomicWrite: store.atomic,
+      readBills: () => store.readList('spendwise.recurring_bills'),
+      writeBills: (rows) => store.writeList('spendwise.recurring_bills', rows),
     );
   }
-
-  List<Map<String, Object?>> readList(String key) {
-    final raw = _prefs.getString(key);
-    if (raw == null || raw.isEmpty) return <Map<String, Object?>>[];
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return <Map<String, Object?>>[];
-      return decoded.whereType<Map<String, Object?>>().toList();
-    } on FormatException {
-      // Corrupt local data must not brick the app; start clean instead.
-      return <Map<String, Object?>>[];
-    }
+  Future<void> atomic(Future<void> Function() action) async {
+    if (Zone.current[_zoneKey] != null) return action();
+    await _db.transaction((txn) => runZoned(action, zoneValues: {_zoneKey: txn}));
   }
-
+  Future<String?> _read(String key) async {
+    final rows = await _executor.query('records', where: 'collection = ?', whereArgs: [key]);
+    if (rows.isEmpty) return null;
+    return utf8.decode(await _cipher.decrypt(rows.single['payload'] as String, key));
+  }
+  Future<void> _write(String key, String raw) async {
+    await _executor.insert('records', {'collection': key,
+      'payload': await _cipher.encrypt(utf8.encode(raw), key)}, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+  Future<List<Map<String, Object?>>> readList(String key) async {
+    final raw = await _read(key);
+    if (raw == null) return [];
+    return (jsonDecode(raw) as List).map((r) => Map<String, Object?>.from(r as Map)).toList();
+  }
+  Future<void> mutateList(String key, List<Map<String, Object?>> Function(List<Map<String, Object?>>) change) =>
+    atomic(() async => _write(key, jsonEncode(change(await readList(key)))));
   Future<void> writeList(String key, List<Map<String, Object?>> rows) =>
-      _prefs.setString(key, jsonEncode(rows));
-
-  Map<String, Object?> readMap(String key) {
-    final raw = _prefs.getString(key);
-    if (raw == null || raw.isEmpty) return <String, Object?>{};
-    try {
-      final decoded = jsonDecode(raw);
-      return decoded is Map<String, Object?> ? decoded : <String, Object?>{};
-    } on FormatException {
-      return <String, Object?>{};
-    }
+    atomic(() => _write(key, jsonEncode(rows)));
+  Future<Map<String, Object?>> readMap(String key) async {
+    final raw = await _read(key);
+    return raw == null ? {} : Map<String, Object?>.from(jsonDecode(raw) as Map);
   }
-
   Future<void> writeMap(String key, Map<String, Object?> value) =>
-      _prefs.setString(key, jsonEncode(value));
+    atomic(() => _write(key, jsonEncode(value)));
 }
 
 /// Replaces the row with a matching `id`, or appends it.
@@ -91,8 +121,7 @@ class LocalTransactionRepository implements TransactionRepository {
 
   @override
   Future<List<AppTransaction>> list({DateTime? from, DateTime? to}) async {
-    final all = _store
-        .readList(_key)
+    final all = (await _store.readList(_key))
         .map(AppTransaction.fromJson)
         .where((t) => from == null || !t.occurredAt.isBefore(from))
         .where((t) => to == null || t.occurredAt.isBefore(to))
@@ -103,16 +132,12 @@ class LocalTransactionRepository implements TransactionRepository {
 
   @override
   Future<void> upsert(AppTransaction transaction) async {
-    await _store.writeList(
-      _key,
-      _upsertRow(_store.readList(_key), transaction.toJson()),
-    );
+    await _store.mutateList(_key, (rows) => _upsertRow(rows, transaction.toJson()));
   }
 
   @override
   Future<void> delete(String id) async {
-    final rows = _store.readList(_key)..removeWhere((r) => r['id'] == id);
-    await _store.writeList(_key, rows);
+    await _store.mutateList(_key, (rows) => rows..removeWhere((r) => r['id'] == id));
   }
 }
 
@@ -123,18 +148,14 @@ class LocalAccountRepository implements AccountRepository {
 
   @override
   Future<List<Account>> list() async =>
-      _store.readList(_key).map(Account.fromJson).toList();
+      (await _store.readList(_key)).map(Account.fromJson).toList();
 
   @override
-  Future<void> upsert(Account account) async => _store.writeList(
-        _key,
-        _upsertRow(_store.readList(_key), account.toJson()),
-      );
+  Future<void> upsert(Account account) async => _store.mutateList(_key, (rows) => _upsertRow(rows, account.toJson()));
 
   @override
   Future<void> delete(String id) async {
-    final rows = _store.readList(_key)..removeWhere((r) => r['id'] == id);
-    await _store.writeList(_key, rows);
+    await _store.mutateList(_key, (rows) => rows..removeWhere((r) => r['id'] == id));
   }
 }
 
@@ -145,18 +166,14 @@ class LocalBudgetRepository implements BudgetRepository {
 
   @override
   Future<List<Budget>> list() async =>
-      _store.readList(_key).map(Budget.fromJson).toList();
+      (await _store.readList(_key)).map(Budget.fromJson).toList();
 
   @override
-  Future<void> upsert(Budget budget) async => _store.writeList(
-        _key,
-        _upsertRow(_store.readList(_key), budget.toJson()),
-      );
+  Future<void> upsert(Budget budget) async => _store.mutateList(_key, (rows) => _upsertRow(rows, budget.toJson()));
 
   @override
   Future<void> delete(String id) async {
-    final rows = _store.readList(_key)..removeWhere((r) => r['id'] == id);
-    await _store.writeList(_key, rows);
+    await _store.mutateList(_key, (rows) => rows..removeWhere((r) => r['id'] == id));
   }
 }
 
@@ -167,18 +184,14 @@ class LocalRuleRepository implements MerchantRuleRepository {
 
   @override
   Future<List<MerchantRule>> list() async =>
-      _store.readList(_key).map(MerchantRule.fromJson).toList();
+      (await _store.readList(_key)).map(MerchantRule.fromJson).toList();
 
   @override
-  Future<void> upsert(MerchantRule rule) async => _store.writeList(
-        _key,
-        _upsertRow(_store.readList(_key), rule.toJson()),
-      );
+  Future<void> upsert(MerchantRule rule) async => _store.mutateList(_key, (rows) => _upsertRow(rows, rule.toJson()));
 
   @override
   Future<void> delete(String id) async {
-    final rows = _store.readList(_key)..removeWhere((r) => r['id'] == id);
-    await _store.writeList(_key, rows);
+    await _store.mutateList(_key, (rows) => rows..removeWhere((r) => r['id'] == id));
   }
 }
 
@@ -189,8 +202,7 @@ class LocalFinancialDocumentRepository implements FinancialDocumentRepository {
 
   @override
   Future<List<FinancialDocument>> list() async {
-    final documents = _store
-        .readList(_key)
+    final documents = (await _store.readList(_key))
         .map(FinancialDocument.fromJson)
         .toList()
       ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
@@ -198,15 +210,11 @@ class LocalFinancialDocumentRepository implements FinancialDocumentRepository {
   }
 
   @override
-  Future<void> upsert(FinancialDocument document) => _store.writeList(
-        _key,
-        _upsertRow(_store.readList(_key), document.toJson()),
-      );
+  Future<void> upsert(FinancialDocument document) => _store.mutateList(_key, (rows) => _upsertRow(rows, document.toJson()));
 
   @override
   Future<void> delete(String id) async {
-    final rows = _store.readList(_key)..removeWhere((row) => row['id'] == id);
-    await _store.writeList(_key, rows);
+    await _store.mutateList(_key, (rows) => rows..removeWhere((row) => row['id'] == id));
   }
 }
 
@@ -217,18 +225,14 @@ class LocalFinancialRuleRepository implements FinancialRuleRepository {
 
   @override
   Future<List<FinancialRule>> list() async =>
-      _store.readList(_key).map(FinancialRule.fromJson).toList();
+      (await _store.readList(_key)).map(FinancialRule.fromJson).toList();
 
   @override
-  Future<void> upsert(FinancialRule rule) => _store.writeList(
-        _key,
-        _upsertRow(_store.readList(_key), rule.toJson()),
-      );
+  Future<void> upsert(FinancialRule rule) => _store.mutateList(_key, (rows) => _upsertRow(rows, rule.toJson()));
 
   @override
   Future<void> delete(String id) async {
-    final rows = _store.readList(_key)..removeWhere((row) => row['id'] == id);
-    await _store.writeList(_key, rows);
+    await _store.mutateList(_key, (rows) => rows..removeWhere((row) => row['id'] == id));
   }
 }
 
@@ -239,7 +243,7 @@ class LocalPreferencesRepository implements PreferencesRepository {
 
   @override
   Future<UserPreferences> load() async =>
-      UserPreferences.fromJson(_store.readMap(_key));
+      UserPreferences.fromJson(await _store.readMap(_key));
 
   @override
   Future<void> save(UserPreferences preferences) =>

@@ -41,15 +41,14 @@ class CaptureController {
     // the app is closed, so the queue — not the live stream — is the path that
     // carries the traffic. Draining first also keeps ordering sensible: older
     // queued alerts are processed before anything arriving now.
-    await drainPending();
-
     _subscription = access.stream().listen(
       _handle,
       // A stream error must not kill capture permanently; the OS may resume
       // delivery, and the subscription stays alive to receive it.
-      onError: (Object error) => debugPrint('Notification stream error: $error'),
+      onError: (Object _) => debugPrint('Notification stream unavailable'),
       cancelOnError: false,
     );
+    await drainPending();
   }
 
   /// Tells the Android service which packages to watch, so notifications from
@@ -89,8 +88,13 @@ class CaptureController {
 
     var stored = 0;
     for (final message in pending) {
-      final result = await _ingestOne(message);
-      if (result.wasStored) stored++;
+      try {
+        final result = await _ingestOne(message);
+        await access.acknowledge(message);
+        if (result.wasStored) stored++;
+      } on Object {
+        await access.acknowledge(message, failed: true);
+      }
     }
 
     if (stored > 0) {
@@ -111,7 +115,15 @@ class CaptureController {
   }
 
   Future<void> _handle(NotificationMessage message) async {
-    final result = await _ingestOne(message);
+    IngestResult result;
+    final access = _ref.read(notificationAccessProvider);
+    try {
+      result = await _ingestOne(message);
+      await access.acknowledge(message);
+    } on Object {
+      await access.acknowledge(message, failed: true);
+      return;
+    }
 
     // Only a stored transaction changes what the UI shows; refreshing on
     // duplicates or declines would cause pointless rebuilds.

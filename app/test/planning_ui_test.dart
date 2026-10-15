@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:cryptography/cryptography.dart';
+import 'package:spendwise/services/local_cipher.dart';
 import 'package:spendwise/data/repositories/local_repositories.dart';
 import 'package:spendwise/state/providers.dart';
 import 'package:spendwise/features/planning/bills_screen.dart';
@@ -9,9 +12,10 @@ import 'package:spendwise/features/planning/backup_screen.dart';
 import 'package:spendwise/features/planning/alerts_screen.dart';
 
 void main() {
+  sqfliteFfiInit();
   setUp(() => SharedPreferences.setMockInitialValues({}));
   Future<void> open(WidgetTester tester, Widget screen) async {
-    final data = await LocalStore.open();
+    final data = await LocalStore.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath, cipher: LocalCipher(SecretKey(List.filled(32, 7))));
     await tester.pumpWidget(
       ProviderScope(
         overrides: [dataLayerProvider.overrideWithValue(data)],

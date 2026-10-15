@@ -2,6 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:cryptography/cryptography.dart';
+import 'package:spendwise/services/local_cipher.dart';
 import 'package:spendwise/services/backup_service.dart';
 import 'package:spendwise/services/budget_alerts.dart';
 import 'package:spendwise/services/recurring_bills.dart';
@@ -37,12 +40,13 @@ RecurringBill bill(DateTime date, {String frequency = 'monthly'}) =>
       anchorDay: date.day,
     );
 void main() {
+  sqfliteFfiInit();
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
   test(
     'restoring writes the backup over what is on the device',
     () async {
-      final original = await LocalStore.open();
+      final original = await LocalStore.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath, cipher: LocalCipher(SecretKey(List.filled(32, 7))));
       await original.transactions.upsert(tx(900));
       await original.budgets.upsert(
         const Budget(id: 'budget', amountCents: 10000),
@@ -53,14 +57,14 @@ void main() {
       final decoded = BackupData.decode(backup.encode());
       expect(decoded.bills.single.advance().due, DateTime(2026, 2, 28));
       SharedPreferences.setMockInitialValues({});
-      final destination = await LocalStore.open();
-      expect(await decoded.restore(destination), 2);
+      final destination = await LocalStore.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath, cipher: LocalCipher(SecretKey(List.filled(32, 7))));
+      expect(await decoded.restore(destination, overwrite: true), 3);
 
       // The point of the feature: a row that is wrong on the device is
       // repaired from the backup. Skipping ids that already existed meant a
       // corrected backup restored cleanly and changed nothing at all.
       await destination.transactions.upsert(tx(1200));
-      expect(await decoded.restore(destination), 2);
+      expect(await decoded.restore(destination, overwrite: true), 3);
       expect((await destination.transactions.list()).single.amountCents, 900);
 
       // A budget arriving under a different id for a category that already
@@ -74,7 +78,7 @@ void main() {
         preferences: const UserPreferences(),
         budgets: [const Budget(id: 'another', amountCents: 20000)],
       );
-      expect(await clash.restore(destination), 1);
+      expect(await clash.restore(destination, overwrite: true), 1);
       final budgets = await destination.budgets.list();
       expect(budgets.single.id, 'another');
       expect(budgets.single.amountCents, 20000);

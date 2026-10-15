@@ -64,6 +64,9 @@ class DataLayer {
     FinancialRuleRepository? financialRules,
     required this.preferences,
     required this.isRemote,
+    this.atomicWrite,
+    this.readBills,
+    this.writeBills,
   })  : documents = documents ?? const _EmptyFinancialDocumentRepository(),
         financialRules = financialRules ?? const _EmptyFinancialRuleRepository();
 
@@ -78,6 +81,11 @@ class DataLayer {
   /// False when running against the local store, so the UI can say so rather
   /// than letting the user believe their data is synced.
   final bool isRemote;
+
+  /// Runs local recovery-sensitive writes in one committed transaction.
+  final Future<void> Function(Future<void> Function())? atomicWrite;
+  final Future<List<Map<String, Object?>>> Function()? readBills;
+  final Future<void> Function(List<Map<String, Object?>>)? writeBills;
 }
 
 /// Defaults keep existing fake DataLayers used by older tests and integrations

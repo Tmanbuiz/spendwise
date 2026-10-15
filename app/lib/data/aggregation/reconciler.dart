@@ -115,7 +115,12 @@ class CrossSourceReconciler {
 
     return ReconcileResult(
       ReconcileAction.insert,
-      merged: _newTransaction(incoming, idGenerator(), categorizer, source),
+      merged: _newTransaction(incoming, idGenerator(), categorizer, source).copyWith(
+        needsReview: existing.any((t) => t.source == TransactionSource.notification &&
+          t.eventType == incoming.eventType && t.currency == incoming.currency &&
+          incoming.date.difference(t.occurredAt).abs() <= dateWindow &&
+          _amountsAgree(incoming.amountCents, t.amountCents)),
+      ),
     );
   }
 
@@ -129,6 +134,7 @@ class CrossSourceReconciler {
   ) {
     AppTransaction? best;
     var bestScore = 0.0;
+    var plausible = 0;
 
     for (final candidate in existing) {
       if (candidate.source != TransactionSource.notification) continue;
@@ -136,6 +142,7 @@ class CrossSourceReconciler {
       if (candidate.currency != incoming.currency) continue;
 
       final score = _score(incoming, candidate);
+      if (score >= 0.75) plausible++;
       if (score > bestScore) {
         bestScore = score;
         best = candidate;
@@ -144,11 +151,15 @@ class CrossSourceReconciler {
 
     // A partial match is worse than none: wrongly merging hides a real
     // transaction, which is harder for the user to notice than a duplicate.
-    return bestScore >= 0.75 ? best : null;
+    return bestScore >= 0.75 && plausible == 1 ? best : null;
   }
 
   /// 0..1 confidence that these are the same purchase.
   double _score(AggregatorTransaction incoming, AppTransaction candidate) {
+    // A fuzzy merge requires positive card identity; missing digits are reviewed.
+    if (incoming.accountLast4 == null || incoming.accountLast4!.isEmpty ||
+        candidate.accountLast4 == null || incoming.accountLast4 != candidate.accountLast4) return 0;
+    if (incoming.accountId != null && candidate.accountId != null && incoming.accountId != candidate.accountId) return 0;
     // The date gate is absolute: the posted date can trail the purchase but
     // never precede it by more than a day of clock skew.
     final drift = incoming.date.difference(candidate.occurredAt);
@@ -276,6 +287,7 @@ class CrossSourceReconciler {
       accountLast4: incoming.accountLast4,
       fingerprint: _providerFingerprint(incoming),
       recordedDirection: incoming.recordedDirection,
+      needsReview: incoming.accountLast4 == null,
     );
   }
 

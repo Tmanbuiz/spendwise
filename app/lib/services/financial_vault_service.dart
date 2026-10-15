@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:convert';
+import 'local_cipher.dart';
 
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -36,6 +38,8 @@ class FinancialVaultService {
     int importedTransactionCount = 0,
     String? note,
   }) async {
+    if (!RegExp(r'^[A-Za-z0-9_-]{1,200}$').hasMatch(documentId)) throw const FormatException('Invalid document ID');
+    if (await file.length() > 30000000) throw const FormatException('Document too large');
     final sourceName = _basename(file.path);
     final safeName = _safeFileName(sourceName);
     final size = await file.length();
@@ -81,7 +85,8 @@ class FinancialVaultService {
 
     final storedName = '${documentId}_$safeName';
     final destination = File('${directory.path}${Platform.pathSeparator}$storedName');
-    await file.copy(destination.path);
+    final cipher = await LocalCipher.open();
+    await destination.writeAsString('SWENC1\n${await cipher.encrypt(await file.readAsBytes(), 'vault:$documentId')}', flush: true);
 
     return FinancialDocument(
       id: documentId,
@@ -145,7 +150,7 @@ class FinancialVaultService {
       return;
     }
 
-    final file = File(document.storagePath);
+    final file = await _localFile(document);
     if (await file.exists()) await file.delete();
   }
 
@@ -157,7 +162,29 @@ class FinancialVaultService {
       }
       return supabase.storage.from(bucket).download(document.storagePath);
     }
-    return File(document.storagePath).readAsBytes();
+    final file = await _localFile(document);
+    final bytes = await file.readAsBytes();
+    final cipher = await LocalCipher.open();
+    const prefix = [83, 87, 69, 78, 67, 49, 10]; // SWENC1 newline
+    if (bytes.length >= prefix.length && List.generate(prefix.length, (i) => bytes[i] == prefix[i]).every((v) => v)) {
+      return cipher.decrypt(utf8.decode(bytes.sublist(prefix.length)), 'vault:${document.id}');
+    }
+    // Upgrade a legacy document in place; no plaintext temporary file is made.
+    final staged = File('${file.path}.encrypting');
+    await staged.writeAsString('SWENC1\n${await cipher.encrypt(bytes, 'vault:${document.id}')}', flush: true);
+    await staged.rename(file.path);
+    return bytes;
+  }
+
+  Future<File> _localFile(FinancialDocument document) async {
+    final root = await getApplicationDocumentsDirectory();
+    final directory = Directory('${root.path}${Platform.pathSeparator}financial_documents');
+    final file = File(document.storagePath);
+    if (!await directory.exists() || !await file.exists()) throw StateError('Document unavailable');
+    final parent = await directory.resolveSymbolicLinks();
+    final actual = await file.resolveSymbolicLinks();
+    if (!actual.startsWith('$parent${Platform.pathSeparator}')) throw StateError('Invalid document path');
+    return File(actual);
   }
 
   static FinancialDocumentType inferDocumentType(String fileName) {

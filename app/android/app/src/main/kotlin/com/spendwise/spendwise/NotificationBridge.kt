@@ -7,6 +7,15 @@ import android.os.Looper
 import io.flutter.plugin.common.EventChannel
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 
 /**
  * The single point of contact between the notification listener service and
@@ -41,7 +50,9 @@ object NotificationBridge {
     private const val KEY_DELIVERED = "stat_delivered"
 
     /** Oldest entries are discarded past this. Roughly a month of alerts. */
-    private const val MAX_QUEUE = 200
+    private const val MAX_QUEUE = 2000
+    private const val KEY_DROPPED = "stat_dropped"
+    private const val KEY_DEAD = "dead_notifications"
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val lock = Any()
@@ -128,6 +139,7 @@ object NotificationBridge {
         bump(KEY_MATCHED)
 
         val payload = mapOf(
+            "envelopeId" to UUID.randomUUID().toString(),
             "packageName" to packageName,
             "title" to title,
             "body" to body,
@@ -135,6 +147,7 @@ object NotificationBridge {
             "postedAt" to postedAt,
         )
 
+        enqueue(payload)
         val sink = eventSink
         if (sink != null) {
             // EventSink must be touched on the main thread; onNotificationPosted
@@ -146,19 +159,18 @@ object NotificationBridge {
                 } catch (_: IllegalStateException) {
                     // Engine detached between the null check and here; the
                     // queue is the fallback so nothing is lost.
-                    enqueue(payload)
+                    // Already persisted before live delivery.
                 }
             }
             return
         }
 
-        enqueue(payload)
     }
 
     private fun enqueue(payload: Map<String, Any>) {
-        val store = prefs ?: return
+        if (prefs == null) return
         synchronized(lock) {
-            val existing = JSONArray(store.getString(KEY_QUEUE, "[]") ?: "[]")
+            val existing = loadQueue(KEY_QUEUE)
             val next = JSONArray()
 
             // Keep the newest MAX_QUEUE entries.
@@ -168,30 +180,32 @@ object NotificationBridge {
             }
 
             next.put(JSONObject(payload as Map<*, *>))
-            store.edit().putString(KEY_QUEUE, next.toString()).apply()
+            if (existing.length() >= MAX_QUEUE) bump(KEY_DROPPED)
+            saveQueue(KEY_QUEUE, next)
         }
         bump(KEY_QUEUED)
     }
 
     /**
-     * Returns everything queued and clears it.
-     *
-     * Read-and-clear in one locked step so a notification arriving mid-drain
-     * is either fully included or left for the next drain, never lost between
-     * the two.
+     * Returns a durable snapshot. Only an explicit acknowledgement removes
+     * an entry, so process death during ingestion leaves it retryable.
      */
     fun drainQueue(): List<Map<String, Any?>> {
-        val store = prefs ?: return emptyList()
+        if (prefs == null) return emptyList()
         synchronized(lock) {
-            val raw = store.getString(KEY_QUEUE, "[]") ?: "[]"
-            store.edit().putString(KEY_QUEUE, "[]").apply()
-
-            val array = JSONArray(raw)
+            val array = loadQueue(KEY_QUEUE)
+            // Assign IDs to legacy envelopes before exposing them.
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                if (!item.has("envelopeId")) item.put("envelopeId", UUID.randomUUID().toString())
+            }
+            saveQueue(KEY_QUEUE, array)
             val out = ArrayList<Map<String, Any?>>(array.length())
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
                 out.add(
                     mapOf(
+                        "envelopeId" to item.optString("envelopeId"),
                         "packageName" to item.optString("packageName"),
                         "title" to item.optString("title"),
                         "body" to item.optString("body"),
@@ -204,10 +218,59 @@ object NotificationBridge {
         }
     }
 
+    fun acknowledge(id: String, failed: Boolean = false) {
+        synchronized(lock) {
+            val queue = loadQueue(KEY_QUEUE)
+            val next = JSONArray()
+            val dead = loadQueue(KEY_DEAD)
+            for (i in 0 until queue.length()) {
+                val item = queue.optJSONObject(i) ?: continue
+                if (item.optString("envelopeId") != id) { next.put(item); continue }
+                if (failed) {
+                    val retries = item.optInt("retries") + 1
+                    item.put("retries", retries).put("lastFailure", "ingest_failed")
+                    if (retries < 5) next.put(item) else dead.put(item)
+                }
+            }
+            while (dead.length() > 100) { dead.remove(0); bump(KEY_DROPPED) }
+            // Persist failed records first, so a crash cannot silently lose one.
+            saveQueue(KEY_DEAD, dead)
+            saveQueue(KEY_QUEUE, next)
+        }
+    }
+
+    private fun queueKey(): SecretKey {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val alias = "spendwise.capture.v1"
+        val existing = ks.getKey(alias, null) as? SecretKey
+        if (existing != null) return existing
+        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
+            init(KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
+        }.generateKey()
+    }
+    private fun loadQueue(key: String): JSONArray {
+        val raw = prefs?.getString(key, null) ?: return JSONArray()
+        if (raw.startsWith("[")) return JSONArray(raw) // legacy migration on next write
+        val payload = JSONObject(raw)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, queueKey(), GCMParameterSpec(128, Base64.decode(payload.getString("iv"), Base64.NO_WRAP)))
+        cipher.updateAAD(key.toByteArray(Charsets.UTF_8))
+        return JSONArray(String(cipher.doFinal(Base64.decode(payload.getString("data"), Base64.NO_WRAP)), Charsets.UTF_8))
+    }
+    private fun saveQueue(key: String, value: JSONArray) {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, queueKey())
+        cipher.updateAAD(key.toByteArray(Charsets.UTF_8))
+        val payload = JSONObject().put("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .put("data", Base64.encodeToString(cipher.doFinal(value.toString().toByteArray(Charsets.UTF_8)), Base64.NO_WRAP))
+        check(prefs?.edit()?.putString(key, payload.toString())?.commit() == true) { "Queue persistence failed" }
+    }
+
     fun pendingCount(): Int {
-        val store = prefs ?: return 0
+        if (prefs == null) return 0
         return try {
-            JSONArray(store.getString(KEY_QUEUE, "[]") ?: "[]").length()
+            loadQueue(KEY_QUEUE).length()
         } catch (_: Exception) {
             0
         }
@@ -220,6 +283,8 @@ object NotificationBridge {
         "queued" to read(KEY_QUEUED),
         "delivered" to read(KEY_DELIVERED),
         "pending" to pendingCount(),
+        "dropped" to read(KEY_DROPPED),
+        "failed" to loadQueue(KEY_DEAD).length(),
         "listenerConnected" to listenerConnected,
         "watchedPackages" to watchedPackages().toList(),
     )

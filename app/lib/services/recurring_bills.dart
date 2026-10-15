@@ -1,8 +1,9 @@
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../state/providers.dart';
+import '../data/repositories/local_repositories.dart';
+import '../data/repositories/repositories.dart';
 
 class RecurringBill {
   const RecurringBill({
@@ -76,22 +77,15 @@ final billsProvider = AsyncNotifierProvider<BillsNotifier, List<RecurringBill>>(
 
 class BillsNotifier extends AsyncNotifier<List<RecurringBill>> {
   static const key = 'spendwise.recurring_bills';
+  late DataLayer _storage;
   @override
   Future<List<RecurringBill>> build() async {
-    final prefs = await SharedPreferences.getInstance();
-    return (jsonDecode(prefs.getString(key) ?? '[]') as List)
-        .map((j) => RecurringBill.fromJson(Map<String, dynamic>.from(j as Map)))
-        .toList();
+    final data = ref.watch(dataLayerProvider);
+    _storage = data.readBills != null ? data : await LocalStore.open();
+    return (await _storage.readBills!()).map(RecurringBill.fromJson).toList();
   }
-
   Future<void> save(List<RecurringBill> bills) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!await prefs.setString(
-      key,
-      jsonEncode(bills.map((b) => b.toJson()).toList()),
-    )) {
-      throw StateError('Could not save bills');
-    }
+    await _storage.writeBills!(bills.map((b) => b.toJson()).toList());
     state = AsyncData(bills);
   }
 }

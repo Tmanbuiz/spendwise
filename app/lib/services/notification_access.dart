@@ -184,7 +184,7 @@ class NotificationAccess {
   /// This is the path that carries almost all real traffic. A purchase alert
   /// arrives while the user is in a shop, with no Flutter engine running, so
   /// the Android service persists it and the app drains it on next launch.
-  /// Draining also clears the queue, so each notification is returned once.
+  /// Entries remain durable until acknowledged after processing commits.
   Future<List<NotificationMessage>> drainPending() async {
     if (!isSupportedPlatform) return const <NotificationMessage>[];
     try {
@@ -199,6 +199,11 @@ class NotificationAccess {
     } on MissingPluginException {
       return const <NotificationMessage>[];
     }
+  }
+
+  Future<void> acknowledge(NotificationMessage message, {bool failed = false}) async {
+    if (!isSupportedPlatform || message.envelopeId == null) return;
+    await _method.invokeMethod<void>(failed ? 'failPending' : 'ackPending', message.envelopeId);
   }
 
   /// Counters describing what the capture path has actually done, so a silent
@@ -261,6 +266,7 @@ class NotificationAccess {
     final subText = read('subText');
     return NotificationMessage(
       packageName: packageName,
+      envelopeId: read('envelopeId').isEmpty ? null : read('envelopeId'),
       title: read('title'),
       body: read('body'),
       postedAt: postedAt,

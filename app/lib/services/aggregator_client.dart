@@ -100,6 +100,9 @@ class SupabaseAggregatorClient implements AggregatorClient {
       },
     );
 
+    if (data['partial_failure'] == true) {
+      throw StateError('One or more banks could not sync. Retry or reconnect the affected bank.');
+    }
     final rows = data['transactions'];
     if (rows is! List) return const <AggregatorTransaction>[];
 
@@ -125,11 +128,14 @@ class SupabaseAggregatorClient implements AggregatorClient {
 /// so this only has to survive bad data — a malformed row returns null rather
 /// than throwing, because one bad record must not abort an entire sync.
 AggregatorTransaction? parseAggregatorTransaction(Map<String, Object?> json) {
+  try { return _parseAggregatorTransaction(json); } on Object { return null; }
+}
+AggregatorTransaction? _parseAggregatorTransaction(Map<String, Object?> json) {
   final providerId = json['provider_id'] as String?;
   if (providerId == null || providerId.isEmpty) return null;
 
   final cents = (json['amount_cents'] as num?)?.toInt();
-  if (cents == null) return null;
+  if (cents == null || !(json['amount_cents'] as num).isFinite || (json['amount_cents'] as num) != (json['amount_cents'] as num).roundToDouble()) return null;
 
   final date = DateTime.tryParse((json['date'] as String?) ?? '');
   if (date == null) return null;

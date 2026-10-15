@@ -20,6 +20,7 @@ class BackupScreen extends ConsumerStatefulWidget {
 class _BackupState extends ConsumerState<BackupScreen> {
   bool busy = false;
   bool restoreSettings = false;
+  bool overwrite = false;
   String? message;
   BackupData? preview;
   Future<void> run(Future<void> Function() action) async {
@@ -32,7 +33,7 @@ class _BackupState extends ConsumerState<BackupScreen> {
     } on Object catch (_) {
       if (mounted) {
         setState(
-          () => message = 'Could not complete the operation. Check the file and try again. A partial restore can safely be retried.',
+          () => message = 'Could not complete the operation. Check the file and try again. No restore changes were committed if validation or writing failed.',
         );
       }
     } finally {
@@ -85,7 +86,7 @@ class _BackupState extends ConsumerState<BackupScreen> {
             OutlinedButton.icon(
               icon: const Icon(Icons.restore),
               label: const Text('Choose backup to restore'),
-              onPressed: busy
+              onPressed: busy || ref.watch(dataLayerProvider).atomicWrite == null
                   ? null
                   : () => run(() async {
                       final file = await FilePicker.pickFile(
@@ -104,6 +105,8 @@ class _BackupState extends ConsumerState<BackupScreen> {
                       if (mounted) setState(() => preview = result);
                     }),
             ),
+            if (ref.watch(dataLayerProvider).atomicWrite == null)
+              const Text('Restore is available in local mode. Synced restore requires transactional server support.'),
             if (preview case final backup?) ...[
               const SizedBox(height: 16),
               SectionCard(
@@ -119,7 +122,19 @@ class _BackupState extends ConsumerState<BackupScreen> {
                     ),
                     const SizedBox(height: 12),
                     const Text(
-                      'Adds missing records. Existing records and budgets take priority. Nothing is deleted.',
+                      'Add missing only preserves existing records. Overwrite replaces matching records and conflicting budgets with backup versions.',
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Overwrite matching records'),
+                      value: overwrite,
+                      onChanged: busy ? null : (v) => setState(() => overwrite = v),
+                    ),
+                    FutureBuilder<Map<String, int>>(
+                      future: backup.previewCounts(ref.read(dataLayerProvider), overwrite: overwrite),
+                      builder: (context, snapshot) => Text(snapshot.hasData
+                        ? '${snapshot.data!['added']} added · ${snapshot.data!['replaced']} replaced · ${snapshot.data!['unchanged']} kept'
+                        : 'Checking conflicts...'),
                     ),
                     CheckboxListTile(
                       contentPadding: EdgeInsets.zero,
@@ -137,35 +152,14 @@ class _BackupState extends ConsumerState<BackupScreen> {
                           ? null
                           : () => run(() async {
                               final data = ref.read(dataLayerProvider);
-                              var count = await backup.restore(data);
-                              if (!mounted) return;
-                              final bills = List<RecurringBill>.from(
-                                await ref.read(billsProvider.future),
-                              );
-                              if (!mounted) return;
-                              for (final bill in backup.bills) {
-                                if (!bills.any((b) => b.id == bill.id)) {
-                                  bills.add(bill);
-                                  count++;
-                                }
-                              }
-                              await ref
-                                  .read(billsProvider.notifier)
-                                  .save(bills);
-                              if (restoreSettings) {
-                                final current = await data.preferences.load();
-                                await data.preferences.save(
-                                  current.copyWith(
-                                    currency: backup.preferences.currency,
-                                    monthStartDay:
-                                        backup.preferences.monthStartDay,
-                                    selectedBankIds:
-                                        backup.preferences.selectedBankIds,
-                                    autoCategorize:
-                                        backup.preferences.autoCategorize,
-                                  ),
-                                );
-                              }
+                              final confirmed = await showDialog<bool>(context: context,
+                                builder: (context) => AlertDialog(title: const Text('Confirm restore'),
+                                  content: Text(overwrite ? 'Matching records and conflicting budgets will be replaced. Recent edits may be lost.' : 'Only missing records will be added. Existing records will be kept.'),
+                                  actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                                    FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Restore'))]));
+                              if (confirmed != true) return;
+                              final count = await backup.restore(data, overwrite: overwrite, restoreSettings: restoreSettings);
+                              ref.invalidate(billsProvider);
                               if (!mounted) return;
                               ref.invalidate(transactionsProvider);
                               ref.invalidate(budgetsProvider);
@@ -174,10 +168,10 @@ class _BackupState extends ConsumerState<BackupScreen> {
                               ref.invalidate(preferencesProvider);
                               setState(() {
                                 preview = null;
-                                message = 'Restored $count missing records.';
+                                message = 'Restored $count records.';
                               });
                             }),
-                      child: const Text('Restore missing records'),
+                      child: const Text('Restore records'),
                     ),
                   ],
                 ),

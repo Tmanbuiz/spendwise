@@ -9,12 +9,7 @@
 // Secrets: supabase secrets set PLAID_CLIENT_ID=... PLAID_SECRET=... \
 //                               PLAID_ENV=sandbox
 
-import { createClient } from 'jsr:@supabase/supabase-js@2';
-
-const PLAID_HOSTS: Record<string, string> = {
-  sandbox: 'https://sandbox.plaid.com',
-  production: 'https://production.plaid.com',
-};
+import { ApiError, body, endpoint, pages, plaid, sinceDate } from '../_shared/aggregator.ts';
 
 interface PlaidTransaction {
   transaction_id: string;
@@ -76,98 +71,39 @@ function mapCategory(primary?: string): string | null {
   }
 }
 
-Deno.serve(async (req: Request) => {
-  try {
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
+Deno.serve(endpoint(async (req, { user, admin }) => {
+  const since = sinceDate((await body(req)).since);
+  const { data: items, error } = await admin.from('linked_items')
+    .select('id, access_token, institution_name, last_synced_at, provider')
+    .eq('user_id', user.id);
+  if (error) throw new ApiError('links_unavailable');
+  const out: unknown[] = [], results: unknown[] = [];
+  for (const item of items ?? []) {
+    try {
+      if (item.provider !== 'plaid') throw new ApiError('unsupported_provider', 400);
+      const { transactions, accounts } = await pages(item.access_token, since, plaid);
+      const normalized = transactions.map((txn: PlaidTransaction) => ({
+        provider_id: txn.transaction_id,
+        amount_cents: Math.round(Math.abs(txn.amount) * 100),
+        currency: txn.iso_currency_code ?? 'CAD', date: txn.date,
+        event_type: classify(txn), merchant: txn.merchant_name ?? txn.name,
+        account_id: txn.account_id, account_last4: accounts[txn.account_id] || null,
+        category: mapCategory(txn.personal_finance_category?.primary), is_pending: txn.pending,
+      }));
+      const at = new Date().toISOString();
+      const { error: updateError } = await admin.from('linked_items')
+        .update({ last_synced_at: at, needs_reauth: false })
+        .eq('id', item.id).eq('user_id', user.id);
+      if (updateError) throw new ApiError('sync_state_failed');
+      out.push(...normalized);
+      results.push({ item_id: item.id, synced: normalized.length, error: null, retryable: false, last_synced_at: at });
+    } catch (e) {
+      const failure = e instanceof ApiError ? e : new ApiError('sync_failed');
+      if (failure.code === 'reauth_required') await admin.from('linked_items')
+        .update({ needs_reauth: true }).eq('id', item.id).eq('user_id', user.id);
+      results.push({ item_id: item.id, synced: 0, error: failure.code, retryable: failure.retryable,
+        last_synced_at: item.last_synced_at });
     }
-
-    // The user's own JWT is forwarded so RLS applies to every read below.
-    // Using the service-role key here would bypass it.
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } },
-    );
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
-    }
-
-    const { data: items } = await supabase
-      .from('linked_items')
-      .select('id, access_token, institution_name');
-
-    if (!items || items.length === 0) {
-      return new Response(JSON.stringify({ transactions: [] }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const body = await req.json().catch(() => ({}));
-    const since = body.since
-      ? new Date(body.since)
-      : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-
-    const host = PLAID_HOSTS[Deno.env.get('PLAID_ENV') ?? 'sandbox'];
-    const out: unknown[] = [];
-
-    for (const item of items) {
-      const response = await fetch(`${host}/transactions/get`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_id: Deno.env.get('PLAID_CLIENT_ID'),
-          secret: Deno.env.get('PLAID_SECRET'),
-          access_token: item.access_token,
-          start_date: since.toISOString().slice(0, 10),
-          end_date: new Date().toISOString().slice(0, 10),
-        }),
-      });
-
-      if (!response.ok) {
-        // One failing institution must not abort the whole sync.
-        console.error(`Plaid sync failed for ${item.id}: ${response.status}`);
-        continue;
-      }
-
-      const payload = await response.json();
-      const accounts: Record<string, string> = {};
-      for (const account of payload.accounts ?? []) {
-        accounts[account.account_id] = account.mask ?? '';
-      }
-
-      for (const txn of (payload.transactions ?? []) as PlaidTransaction[]) {
-        out.push({
-          provider_id: txn.transaction_id,
-          amount_cents: Math.round(Math.abs(txn.amount) * 100),
-          currency: txn.iso_currency_code ?? 'CAD',
-          date: txn.date,
-          event_type: classify(txn),
-          merchant: txn.merchant_name ?? txn.name,
-          account_id: txn.account_id,
-          account_last4: accounts[txn.account_id] || null,
-          category: mapCategory(txn.personal_finance_category?.primary),
-          is_pending: txn.pending,
-        });
-      }
-
-      await supabase
-        .from('linked_items')
-        .update({ last_synced_at: new Date().toISOString() })
-        .eq('id', item.id);
-    }
-
-    return new Response(JSON.stringify({ transactions: out }), {
-      headers: { 'Content-Type': 'application/json' },
-    });
-  } catch (error) {
-    console.error(error);
-    return new Response(JSON.stringify({ error: 'sync_failed' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
   }
-});
+  return { transactions: out, results, partial_failure: results.some((r: any) => r.error !== null) };
+}));
