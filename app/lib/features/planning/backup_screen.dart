@@ -114,10 +114,10 @@ class _BackupState extends ConsumerState<BackupScreen> {
               onPressed: busy || ref.watch(dataLayerProvider).atomicWrite == null
                   ? null
                   : () => run(() async {
-                      final files = await FilePicker.pickFiles(
+                      final files = (await FilePicker.pickFiles(
                         type: FileType.custom,
                         allowedExtensions: ['json'],
-                      );
+                      ))?.files;
                       if (files == null || files.isEmpty || files.single.path == null) return;
                       if (mounted) setState(() => preview = null);
                       final input = File(files.single.path!);
