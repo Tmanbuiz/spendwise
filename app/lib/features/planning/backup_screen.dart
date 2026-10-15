@@ -114,9 +114,10 @@ class _BackupState extends ConsumerState<BackupScreen> {
                   ? null
                   : () => run(() async {
                       final files = await FilePicker.pickFiles(
-                        mimeType: 'application/json',
+                        type: FileType.custom,
+                        allowedExtensions: ['json'],
                       );
-                      if (files == null || files.isEmpty || files.single.path == null) return;
+                      if (files.isEmpty || files.single.path == null) return;
                       if (mounted) setState(() => preview = null);
                       final input = File(files.single.path!);
                       if (await input.length() > 30000000) {

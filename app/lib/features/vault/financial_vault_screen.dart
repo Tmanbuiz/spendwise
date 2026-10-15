@@ -39,7 +39,7 @@ class _FinancialVaultScreenState extends ConsumerState<FinancialVaultScreen> {
         allowedExtensions: <String>['pdf', 'csv', 'txt', 'jpg', 'jpeg', 'png'],
       );
       if (!mounted) return;
-      if (picked == null || picked.isEmpty) {
+      if (picked.isEmpty) {
         setState(() => _busy = false);
         return;
       }

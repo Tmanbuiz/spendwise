@@ -48,7 +48,7 @@ class _StatementImportScreenState extends ConsumerState<StatementImportScreen> {
         allowedExtensions: <String>['csv', 'pdf', 'txt'],
       );
       if (!mounted) return;
-      if (picked == null || picked.isEmpty) {
+      if (picked.isEmpty) {
         setState(() => _busy = false);
         return;
       }
