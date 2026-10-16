@@ -27,29 +27,40 @@ class CaptureController {
 
   Future<void> start() async {
     if (_started) return;
+    try { await _start(); }
+    on Object {
+      _started = false;
+      await _subscription?.cancel();
+      _subscription = null;
+      rethrow;
+    }
+  }
+
+  Future<void> _start() async {
+    if (_started) return;
     _started = true;
 
     final access = _ref.read(notificationAccessProvider);
     if (!access.isSupportedPlatform) return;
 
+    // Never replace the watched bank list or acknowledge a backlog while
+    // the user's bank preferences are still loading.
+    await _ref.read(preferencesProvider.future);
     await _syncWatchedPackages();
 
     final ingest = _ref.read(ingestServiceProvider);
     await ingest.warmUp();
 
-    // Drain before subscribing. Almost every real purchase alert arrives while
-    // the app is closed, so the queue — not the live stream — is the path that
-    // carries the traffic. Draining first also keeps ordering sensible: older
-    // queued alerts are processed before anything arriving now.
-    await drainPending();
-
+    // Subscribe before taking the durable snapshot so a notification arriving
+    // during startup is covered by the stream, the backlog, or both.
     _subscription = access.stream().listen(
       _handle,
       // A stream error must not kill capture permanently; the OS may resume
       // delivery, and the subscription stays alive to receive it.
-      onError: (Object error) => debugPrint('Notification stream error: $error'),
+      onError: (Object _) => debugPrint('Notification stream unavailable'),
       cancelOnError: false,
     );
+    await drainPending();
   }
 
   /// Tells the Android service which packages to watch, so notifications from
@@ -80,6 +91,7 @@ class CaptureController {
     // Re-reading the shade first picks up alerts that arrived before access
     // was granted. The service writes them to the same queue, so a short wait
     // lets that land before draining.
+    if (rescanFirst) await access.retryFailed();
     if (rescanFirst && await access.rescanActive()) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
     }
@@ -89,8 +101,13 @@ class CaptureController {
 
     var stored = 0;
     for (final message in pending) {
-      final result = await _ingestOne(message);
-      if (result.wasStored) stored++;
+      try {
+        final result = await _ingestOne(message);
+        await access.acknowledge(message);
+        if (result.wasStored) stored++;
+      } on Object {
+        await _markFailed(message);
+      }
     }
 
     if (stored > 0) {
@@ -100,8 +117,7 @@ class CaptureController {
   }
 
   Future<IngestResult> _ingestOne(NotificationMessage message) async {
-    final selected =
-        _ref.read(preferencesProvider).value?.selectedBankIds ?? <String>{};
+    final selected = (await _ref.read(preferencesProvider.future)).selectedBankIds;
     final result = await _ref.read(ingestServiceProvider).ingest(
           message,
           selectedBankIds: selected,
@@ -111,13 +127,26 @@ class CaptureController {
   }
 
   Future<void> _handle(NotificationMessage message) async {
-    final result = await _ingestOne(message);
+    IngestResult result;
+    final access = _ref.read(notificationAccessProvider);
+    try {
+      result = await _ingestOne(message);
+      await access.acknowledge(message);
+    } on Object {
+      await _markFailed(message);
+      return;
+    }
 
     // Only a stored transaction changes what the UI shows; refreshing on
     // duplicates or declines would cause pointless rebuilds.
     if (result.wasStored) {
       await _ref.read(transactionsProvider.notifier).refresh();
     }
+  }
+
+  Future<void> _markFailed(NotificationMessage message) async {
+    try { await _ref.read(notificationAccessProvider).acknowledge(message, failed: true); }
+    on Object { debugPrint('Capture remains pending; acknowledgment unavailable'); }
   }
 
   void _remember(IngestResult result) {

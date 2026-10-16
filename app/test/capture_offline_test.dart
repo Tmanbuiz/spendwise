@@ -22,10 +22,10 @@ class _FakePlatform {
     switch (call.method) {
       case 'drainPending':
         drainCalls++;
-        final out = queue;
-        // Draining clears, exactly as the Kotlin side does.
-        queue = <Map<String, Object?>>[];
-        return out;
+        return List<Map<String, Object?>>.from(queue);
+      case 'ackPending':
+        queue.removeWhere((x) => x['envelopeId'] == call.arguments);
+        return null;
       case 'captureStats':
         return <String, Object?>{
           'seen': 12,
@@ -51,6 +51,7 @@ class _FakePlatform {
   }
 }
 
+int _nextEnvelope = 0;
 Map<String, Object?> queued({
   String packageName = 'com.cibc.android.mobi',
   String title = 'CIBC',
@@ -59,6 +60,7 @@ Map<String, Object?> queued({
   int? postedAt,
 }) {
   return <String, Object?>{
+    'envelopeId': '${DateTime.now().microsecondsSinceEpoch}-${_nextEnvelope++}',
     'packageName': packageName,
     'title': title,
     'body': body,
@@ -119,12 +121,15 @@ void main() {
       expect(pending.first.postedAt, when);
     });
 
-    test('a drain empties the queue, so nothing is processed twice', () async {
+    test('draining retains events until explicit acknowledgment', () async {
       platform.queue = <Map<String, Object?>>[queued(), queued()];
 
+      final pending = await access.drainPending();
+      expect(pending, hasLength(2));
       expect(await access.drainPending(), hasLength(2));
+      for (final message in pending) { await access.acknowledge(message); }
       expect(await access.drainPending(), isEmpty);
-      expect(platform.drainCalls, 2);
+      expect(platform.drainCalls, 3);
     });
 
     test('an empty queue is not an error', () async {

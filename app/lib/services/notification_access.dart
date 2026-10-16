@@ -19,6 +19,8 @@ class CaptureStats {
     required this.listenerConnected,
     required this.watchedPackages,
     required this.available,
+    this.failed = 0,
+    this.dropped = 0,
   });
 
   static const CaptureStats unavailable = CaptureStats(
@@ -46,6 +48,8 @@ class CaptureStats {
 
   /// Still waiting to be processed.
   final int pending;
+  final int failed;
+  final int dropped;
 
   final bool listenerConnected;
   final List<String> watchedPackages;
@@ -61,6 +65,8 @@ class CaptureStats {
       queued: read('queued'),
       delivered: read('delivered'),
       pending: read('pending'),
+      failed: read('failed'),
+      dropped: read('dropped'),
       listenerConnected: (map['listenerConnected'] as bool?) ?? false,
       watchedPackages: (map['watchedPackages'] as List<Object?>?)
               ?.whereType<String>()
@@ -184,21 +190,37 @@ class NotificationAccess {
   /// This is the path that carries almost all real traffic. A purchase alert
   /// arrives while the user is in a shop, with no Flutter engine running, so
   /// the Android service persists it and the app drains it on next launch.
-  /// Draining also clears the queue, so each notification is returned once.
+  /// Entries remain durable until acknowledged after processing commits.
   Future<List<NotificationMessage>> drainPending() async {
     if (!isSupportedPlatform) return const <NotificationMessage>[];
     try {
       final pending = await _method.invokeMethod<List<Object?>>('drainPending');
       if (pending == null) return const <NotificationMessage>[];
-      return pending
-          .map(_decode)
-          .whereType<NotificationMessage>()
-          .toList();
+      final decoded = <NotificationMessage>[];
+      for (final raw in pending) {
+        final message = _decode(raw);
+        if (message != null) { decoded.add(message); continue; }
+        final id = raw is Map ? raw['envelopeId'] : null;
+        if (id is String && id.isNotEmpty) {
+          try { await _method.invokeMethod<void>('failPending', id); }
+          on Object { /* Retain the malformed entry if failure tracking is unavailable. */ }
+        }
+      }
+      return decoded;
     } on PlatformException {
       return const <NotificationMessage>[];
     } on MissingPluginException {
       return const <NotificationMessage>[];
     }
+  }
+
+  Future<void> retryFailed() async {
+    if (isSupportedPlatform) await _method.invokeMethod<void>('retryFailed');
+  }
+
+  Future<void> acknowledge(NotificationMessage message, {bool failed = false}) async {
+    if (!isSupportedPlatform || message.envelopeId == null) return;
+    await _method.invokeMethod<void>(failed ? 'failPending' : 'ackPending', message.envelopeId);
   }
 
   /// Counters describing what the capture path has actually done, so a silent
@@ -245,10 +267,13 @@ class NotificationAccess {
   /// Returns null for anything malformed rather than throwing, because a
   /// single bad payload must not tear down the capture stream.
   static NotificationMessage? _decode(Object? event) {
+    try { return _decodeChecked(event); } on Object { return null; }
+  }
+  static NotificationMessage? _decodeChecked(Object? event) {
     if (event is! Map) return null;
     final map = Map<Object?, Object?>.from(event);
 
-    String read(String key) => (map[key] as String?)?.trim() ?? '';
+    String read(String key) => map[key] is String ? (map[key] as String).trim() : '';
 
     final packageName = read('packageName');
     if (packageName.isEmpty) return null;
@@ -261,6 +286,7 @@ class NotificationAccess {
     final subText = read('subText');
     return NotificationMessage(
       packageName: packageName,
+      envelopeId: read('envelopeId').isEmpty ? null : read('envelopeId'),
       title: read('title'),
       body: read('body'),
       postedAt: postedAt,

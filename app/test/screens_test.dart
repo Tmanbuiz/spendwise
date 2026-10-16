@@ -128,6 +128,7 @@ Widget harness(
     selectedBankIds: <String>{'cibc'},
   ),
 }) {
+  var storedBills = <Map<String, Object?>>[];
   return ProviderScope(
     overrides: [
       if (now != null) reportingNowProvider.overrideWithValue(now),
@@ -139,6 +140,8 @@ Widget harness(
           rules: _FakeRules(rules),
           preferences: _FakePreferences(preferences),
           isRemote: false,
+          readBills: () async => storedBills,
+          writeBills: (bills) async { storedBills = List.of(bills); },
         ),
       ),
     ],

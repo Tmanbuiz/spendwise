@@ -122,7 +122,15 @@ class IngestService {
   }
 
   /// Runs one captured notification through the pipeline.
-  Future<IngestResult> ingest(
+  Future<void> _tail = Future<void>.value();
+
+  Future<IngestResult> ingest(NotificationMessage message, {required Set<String> selectedBankIds}) {
+    final result = _tail.then((_) => _ingest(message, selectedBankIds: selectedBankIds));
+    _tail = result.then<void>((_) {}, onError: (Object error, StackTrace stackTrace) {});
+    return result;
+  }
+
+  Future<IngestResult> _ingest(
     NotificationMessage message, {
     required Set<String> selectedBankIds,
   }) async {
@@ -201,7 +209,11 @@ class IngestService {
     }
 
     final transaction = toAppTransaction(parsed, bankId: bank.id);
-    await sink.save(transaction);
+    try { await sink.save(transaction); } on Object {
+      // evaluate() reserves in memory before saving; a failed write must remain retryable.
+      _detector.clear();
+      rethrow;
+    }
     return IngestResult(
       IngestStatus.stored,
       transaction: transaction,

@@ -11,6 +11,7 @@ class NotificationMessage {
     required this.postedAt,
     this.subText,
     this.channelId,
+    this.envelopeId,
   });
 
   /// Android application id, e.g. `com.cibc.android.mobi`.
@@ -28,6 +29,9 @@ class NotificationMessage {
   final String? subText;
 
   final String? channelId;
+
+  /// Durable Android queue identity, acknowledged only after processing commits.
+  final String? envelopeId;
 
   /// Title, body and subText joined into one haystack for matching.
   ///
@@ -51,6 +55,7 @@ class NotificationMessage {
     DateTime? postedAt,
     String? subText,
     String? channelId,
+    String? envelopeId,
   }) {
     return NotificationMessage(
       packageName: packageName ?? this.packageName,
@@ -59,6 +64,7 @@ class NotificationMessage {
       postedAt: postedAt ?? this.postedAt,
       subText: subText ?? this.subText,
       channelId: channelId ?? this.channelId,
+      envelopeId: envelopeId ?? this.envelopeId,
     );
   }
 }

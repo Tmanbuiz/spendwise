@@ -45,11 +45,12 @@ class BackupData {
     }
     List<T> rows<T>(String key, T Function(Map<String, dynamic>) parse) {
       final items = root[key] as List;
+      if (items.length > 100000) throw const FormatException('Too many records');
       final ids = <String>{};
       return items.map((item) {
         final row = Map<String, dynamic>.from(item as Map);
         final id = row['id'];
-        if (id is! String || id.isEmpty || !ids.add(id)) {
+        if (id is! String || id.isEmpty || id.length > 64 || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(id) || !ids.add(id)) {
           throw FormatException('Invalid or repeated ID in $key');
         }
         if (key == 'transactions') {
@@ -93,56 +94,76 @@ class BackupData {
     bills: bills,
   );
 
-  /// Writes the backup over what is on the device, by id.
-  ///
-  /// This used to add missing ids only, which meant a restore could never
-  /// repair a row that already existed — it silently skipped it. That made the
-  /// feature useless in the situation it exists for: data on the device is
-  /// wrong, and a known-good copy is available. Restoring a corrected backup
-  /// appeared to succeed and changed nothing.
-  ///
-  /// So a row present in both is now overwritten from the backup. The cost is
-  /// that an edit made after the backup was taken is lost for that row, which
-  /// is the ordinary meaning of restoring: the file is the version being
-  /// asked for. Rows absent from the backup are left alone rather than
-  /// deleted, so restoring an older file adds history back without discarding
-  /// anything newer.
-  ///
-  /// Returns the number of rows written.
-  Future<int> restore(DataLayer data) async {
+  /// Default restore preserves newer records. Overwrite is an explicit choice.
+  Future<int> restore(DataLayer data, {bool overwrite = false, bool restoreSettings = false}) async {
+    final atomic = data.atomicWrite;
+    if (atomic == null) throw StateError('Atomic restore is unavailable for this storage.');
+    // Round-trip validates programmatically constructed backups as well.
+    final validated = BackupData.decode(encode());
     var count = 0;
-
-    for (final x in accounts) {
-      await data.accounts.upsert(x);
-      count++;
-    }
-    for (final x in transactions) {
-      await data.transactions.upsert(x);
-      count++;
-    }
-
-    // Budgets match on identity *or* on the pair the app treats as unique, so
-    // restoring cannot leave two budgets competing for one category.
-    final currentBudgets = await data.budgets.list();
-    for (final x in budgets) {
-      final clash = currentBudgets.where(
-        (b) =>
-            b.id != x.id &&
-            b.currency == x.currency &&
-            b.category == x.category,
-      );
-      for (final duplicate in clash.toList()) {
-        await data.budgets.delete(duplicate.id);
-        currentBudgets.remove(duplicate);
+    await atomic(() async {
+      final oldAccounts = await data.accounts.list();
+      final accountIds = {...oldAccounts.map((a) => a.id), ...validated.accounts.map((a) => a.id)};
+      for (final t in validated.transactions) {
+        if (t.accountId != null && !accountIds.contains(t.accountId)) {
+          throw const FormatException('Transaction references a missing account');
+        }
       }
-      await data.budgets.upsert(x);
-      count++;
-    }
-
-    for (final x in rules) {
-      await data.rules.upsert(x);
-      count++;
-    }
+      for (final a in validated.accounts) {
+        if (overwrite || !oldAccounts.any((x) => x.id == a.id)) { await data.accounts.upsert(a); count++; }
+      }
+      final oldTransactions = await data.transactions.list();
+      for (final t in validated.transactions) {
+        if (overwrite || !oldTransactions.any((x) => x.id == t.id)) { await data.transactions.upsert(t); count++; }
+      }
+      final currentBudgets = await data.budgets.list();
+      for (final b in validated.budgets) {
+        final clashes = currentBudgets.where((x) => x.id == b.id || (x.currency == b.currency && x.category == b.category)).toList();
+        if (!overwrite && clashes.isNotEmpty) continue;
+        for (final x in clashes) { if (x.id != b.id) await data.budgets.delete(x.id); currentBudgets.remove(x); }
+        await data.budgets.upsert(b); currentBudgets.add(b); count++;
+      }
+      final oldRules = await data.rules.list();
+      for (final r in validated.rules) {
+        if (overwrite || !oldRules.any((x) => x.id == r.id)) { await data.rules.upsert(r); count++; }
+      }
+      if (data.readBills != null && data.writeBills != null) {
+        final rows = await data.readBills!();
+        for (final bill in validated.bills) {
+          final index = rows.indexWhere((x) => x['id'] == bill.id);
+          if (index < 0) { rows.add(bill.toJson()); count++; }
+          else if (overwrite) { rows[index] = bill.toJson(); count++; }
+        }
+        await data.writeBills!(rows);
+      }
+      if (restoreSettings) {
+        final current = await data.preferences.load();
+        await data.preferences.save(current.copyWith(currency: preferences.currency,
+          monthStartDay: preferences.monthStartDay, selectedBankIds: preferences.selectedBankIds,
+          autoCategorize: preferences.autoCategorize));
+      }
+    });
     return count;
+  }
+
+  Future<Map<String, int>> previewCounts(DataLayer data, {bool overwrite = false}) async {
+    var added = 0, replaced = 0, unchanged = 0;
+    void compare(Iterable<String> incoming, Set<String> current) {
+      for (final id in incoming) {
+        if (!current.contains(id)) { added++; } else if (overwrite) { replaced++; } else { unchanged++; }
+      }
+    }
+    compare(accounts.map((x) => x.id), (await data.accounts.list()).map((x) => x.id).toSet());
+    compare(transactions.map((x) => x.id), (await data.transactions.list()).map((x) => x.id).toSet());
+    compare(rules.map((x) => x.id).whereType<String>(), (await data.rules.list()).map((x) => x.id).whereType<String>().toSet());
+    final oldBudgets = await data.budgets.list();
+    for (final b in budgets) {
+      if (oldBudgets.any((x) => x.id == b.id || (x.currency == b.currency && x.category == b.category))) {
+        if (overwrite) { replaced++; } else { unchanged++; }
+      } else { added++; }
+    }
+    final oldBills = await data.readBills?.call() ?? <Map<String, Object?>>[];
+    compare(bills.map((x) => x.id), oldBills.map((x) => x['id'] as String).toSet());
+    return {'added': added, 'replaced': replaced, 'unchanged': unchanged};
   }
 }

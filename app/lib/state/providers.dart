@@ -18,6 +18,7 @@ import '../data/repositories/local_repositories.dart';
 import '../data/repositories/repositories.dart';
 import '../data/repositories/supabase_repositories.dart';
 import '../services/ingest_service.dart';
+import '../services/financial_vault_service.dart';
 import '../services/notification_access.dart';
 
 /// Set once at startup by `main`, so synchronous providers can read the data
@@ -34,7 +35,9 @@ Future<DataLayer> bootstrapDataLayer() async {
     );
     _bootstrappedDataLayer = SupabaseData.open(Supabase.instance.client);
   } else {
-    _bootstrappedDataLayer = await LocalStore.open();
+    final local = await LocalStore.open();
+    await FinancialVaultService(isRemote: false).migrateLegacyDocuments(await local.documents.list());
+    _bootstrappedDataLayer = local;
   }
   return _bootstrappedDataLayer!;
 }
